@@ -70,6 +70,15 @@ PROJECTS = {
              "KAGGLE_SEEDS": "42,43,44,45,46,47,48,49,50,51",
              "KAGGLE_FUSION_PRED": "/kaggle/working/matrix_pred.parquet"},
     ),
+    # 3min 专项攻坚（事件合约最小周期=3min）：一致性打分 + 连续加权
+    "h3push": dict(
+        slug="byh850515/btcusdt-h3-push",
+        title="BTCUSDT H3 Push",
+        entry="orderbook.h3_push",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"KAGGLE_FUSION_PRED": "/kaggle/working/h3_push_pred.parquet"},
+    ),
     # 多 horizon 分数混合：h=1 强信号补 h=3（合并成单一打分）
     "blend3": dict(
         slug="byh850515/btcusdt-blend-h1-h2-h3",
