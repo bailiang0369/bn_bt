@@ -1,8 +1,9 @@
 # 依赖清单：Kaggle bootstrap 运行时按此 `pip install -r requirements.txt`
-# 版本钉为本机验证通过的版本，保证 Kaggle 环境与本地一致
-faiss-cpu==1.15.1
-polars==2.1.0
-lightgbm==4.7.0
-scikit-learn==1.9.0
-numpy==2.5.1
-requests==2.34.2
+# 不锁版本，统一用各库最新版（日常保持最新）；
+# 若某次运行因新版不兼容而报错，再在此文件对应行加 ==x.y.z 锁回可用版本即可
+faiss-cpu
+polars
+lightgbm
+scikit-learn
+numpy
+requests
