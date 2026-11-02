@@ -66,13 +66,37 @@ def train_lgb_reg_avg(X, y_ret, tr, va, cols, seeds, rounds, weight=None, alpha=
     return (preds / len(seeds)).astype(np.float32)
 
 
-def metrics(score, y, day_id, mask, k):
+def daily_topk_ret(score, fwd_bp, day_id, mask, k):
+    """按天 top-k 选中样本的平均收益（bp，已按分数符号取方向）。"""
+    s, r, d = score[mask], fwd_bp[mask], day_id[mask]
+    rets = []
+    for u in np.unique(d):
+        m = d == u
+        kk = min(k, int(m.sum()))
+        idx = np.argsort(-np.abs(s[m]))[:kk]
+        rets.append(float((np.sign(s[m][idx]) * r[m][idx]).mean()))
+    return float(np.mean(rets))
+
+
+def smooth(score, w):
+    """时序平滑（只用过去 w 个 bar），用于压制单 bar 噪声。"""
+    c = np.concatenate([[0.0], np.cumsum(score, dtype=np.float64)])
+    out = (c[w:] - c[:-w]) / w
+    return np.concatenate([np.full(w - 1, score[0], dtype=np.float64), out])
+
+
+def metrics(score, y, day_id, mask, k, fwd_bp=None):
     a1, _ = acc_at_cov(score, y, 0.01)
-    d = float(daily_topk_eval(score, y, day_id, mask, k).mean())
-    return float(roc_auc_score(y, score)), a1, d
+    accs = daily_topk_eval(score, y, day_id, mask, k)
+    d = float(accs.mean())
+    ret = daily_topk_ret(score, fwd_bp, day_id, mask, k) if fwd_bp is not None else float("nan")
+    return float(roc_auc_score(y, score)), a1, d, ret
 
 
-def run_horizon(ob0, h, names, seeds, rounds, daily_k, save_pred=None, feat_cache=None):
+def run_horizon(ob0, h, names, seeds, rounds, daily_k, save_pred=None, test_offset_days=0):
+    if test_offset_days > 0:
+        # 把时间轴整体前移 N 天：test 变成"更早的 92 天"，训练也相应截止（严格前向）
+        ob0 = ob0.head(ob0.height - test_offset_days * 1440)
     ob = add_target(ob0, h).drop_nulls()
     L = len(ob)
     k1, k2 = int(L * 0.64), int(L * 0.80)
@@ -86,18 +110,14 @@ def run_horizon(ob0, h, names, seeds, rounds, daily_k, save_pred=None, feat_cach
 
     base_cols = [c for c in ob.columns if c not in ("target", "close_time")]
     Xb = ob.select(base_cols).to_numpy().astype(np.float32)
-    if feat_cache is not None and "Xd" in feat_cache:
-        Xd, der_cols = feat_cache["Xd"], feat_cache["der_cols"]
-    else:
-        obd = add_derived_features(ob)
-        der_cols = [c for c in obd.columns if c not in ("target", "close_time")]
-        Xd = obd.select(der_cols).to_numpy().astype(np.float32)
-        if feat_cache is not None:
-            feat_cache["Xd"], feat_cache["der_cols"] = Xd, der_cols
+    obd = add_derived_features(ob)
+    der_cols = [c for c in obd.columns if c not in ("target", "close_time")]
+    Xd = obd.select(der_cols).to_numpy().astype(np.float32)
 
     day_te = day_index(ct[te])
     m_te = complete_days(day_te)
     n_full = len(np.unique(day_te[m_te]))
+    fwd_bp = fwd[te] * 1e4
     print(f"\n[h={h}] rows={L} train[0:{k1 - h}] val[{k1}:{k2 - h}] test[{k2}:{L}] "
           f"purge={h} 完整天={n_full} 按天top{daily_k}→{n_full * daily_k} 单  "
           f"feats base={Xb.shape[1]} derived={Xd.shape[1]}")
@@ -119,16 +139,23 @@ def run_horizon(ob0, h, names, seeds, rounds, daily_k, save_pred=None, feat_cach
         if cfg["sort"] == "amp":
             r_all = train_lgb_reg_avg(X, fwd, tr, va, cols, seeds, rounds, weight)
             score = (p_all[te] - 0.5) * np.abs(r_all[te])
-        auc, a1, dk = metrics(score, y[te], day_te, m_te, daily_k)
-        rows.append((name, auc, a1, dk))
+        auc, a1, dk, ret = metrics(score, y[te], day_te, m_te, daily_k, fwd_bp)
+        rows.append((name, auc, a1, dk, ret))
         preds[name] = score
-        print(f"  [{name}] AUC={auc:.4f} 全局1%={a1:.4f} 按天top{daily_k}={dk:.4f} iters={iters}")
+        print(f"  [{name}] AUC={auc:.4f} 全局1%={a1:.4f} 按天top{daily_k}={dk:.4f} "
+              f"平均{ret:.2f}bp iters={iters}")
+        # 时序平滑后处理（不重训，只是把单 bar 噪声压掉）
+        for w in (3, 5):
+            s2 = smooth(score, w)
+            auc2, a12, dk2, ret2 = metrics(s2, y[te], day_te, m_te, daily_k, fwd_bp)
+            rows.append((f"{name}+s{w}", auc2, a12, dk2, ret2))
+            preds[f"{name}_s{w}"] = s2
 
-    print(f"  {'变体':<10}{'AUC':>9}{'全局1%':>10}{'按天top' + str(daily_k):>12}")
-    for name, auc, a1, dk in sorted(rows, key=lambda r: -r[3]):
-        print(f"  {name:<10}{auc:>9.4f}{a1:>10.4f}{dk:>12.4f}")
+    print(f"  {'变体':<12}{'AUC':>9}{'全局1%':>10}{'按天top' + str(daily_k):>12}{'平均bp':>9}")
+    for name, auc, a1, dk, ret in sorted(rows, key=lambda r: -r[3]):
+        print(f"  {name:<12}{auc:>9.4f}{a1:>10.4f}{dk:>12.4f}{ret:>9.2f}")
     best = max(rows, key=lambda r: r[3])
-    print(f"  [h={h}] 最优按天口径: {best[0]} = {best[3]:.4f}")
+    print(f"  [h={h}] 最优按天口径: {best[0]} = {best[3]:.4f}（平均 {best[4]:.2f}bp）")
 
     if save_pred:
         out = pl.DataFrame({"close_time": ct[te], "target": y[te],
@@ -147,6 +174,9 @@ def main():
     ap.add_argument("--variants",
                     default=os.environ.get("KAGGLE_VARIANTS", ",".join(VARIANTS)))
     ap.add_argument("--save-pred", default=os.environ.get("KAGGLE_FUSION_PRED"))
+    ap.add_argument("--test-offset-days", type=int,
+                    default=int(os.environ.get("KAGGLE_TEST_OFFSET", "0")),
+                    help="时间轴整体前移 N 天做样本外复核（训练也随之前移）")
     a = ap.parse_args()
 
     seeds = [int(s) for s in a.seeds.split(",") if s.strip()]
@@ -163,7 +193,8 @@ def main():
             stem = a.save_pred.rsplit(".parquet", 1)[0]
             save = f"{stem}_h{h}.parquet"
         # 不同 horizon 的 drop_nulls 行数不同，派生特征不跨 horizon 复用（成本仅几秒）
-        all_rows[h] = run_horizon(ob0, h, names, seeds, a.rounds, a.daily_k, save)
+        all_rows[h] = run_horizon(ob0, h, names, seeds, a.rounds, a.daily_k,
+                                  save, a.test_offset_days)
 
     print("\n" + "=" * 72)
     print("跨 horizon 汇总（按天 top%d）" % a.daily_k)
