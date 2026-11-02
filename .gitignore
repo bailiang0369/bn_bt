@@ -1,0 +1,5 @@
+data/
+kaggle_ds/
+__pycache__/
+*.pyc
+.codebuddy/
