@@ -99,6 +99,29 @@ def acc_at_cov(score, y, cov):
     return float((pred == y[idx]).mean()), k
 
 
+def day_index(ct_ms):
+    return (np.asarray(ct_ms) // 86_400_000).astype(np.int64)
+
+
+def complete_days(day_id, min_bars=1200):
+    """只保留 bar 数接近整天的日期（切分边界上的半天会拉低当天的日均准确率）。"""
+    u, c = np.unique(day_id, return_counts=True)
+    return np.isin(day_id, u[c >= min_bars])
+
+
+def daily_topk_eval(score, y, day_id, mask, k):
+    """真实交易口径：每天取 |score| 最大的 k 个信号，算每天的准确率。
+    用户目标『日均 15 单』= k=15（1 天 1440 根 1m bar 的 1.04%）。"""
+    s, yy, d = score[mask], y[mask], day_id[mask]
+    accs = []
+    for u in np.unique(d):
+        m = d == u
+        kk = min(k, int(m.sum()))
+        idx = np.argsort(-np.abs(s[m]))[:kk]
+        accs.append(float(((s[m][idx] > 0).astype(int) == yy[m][idx]).mean()))
+    return np.array(accs, dtype=np.float64)
+
+
 def train_lgb_avg(X, y, tr, va, cols, seeds, rounds):
     probs = np.zeros(len(y), dtype=np.float64)
     iters = []
@@ -126,6 +149,8 @@ def main():
     ap.add_argument("--faiss-seeds", default="42,43,44")
     ap.add_argument("--save-pred", default=os.environ.get("KAGGLE_FUSION_PRED"),
                     help="输出逐行 pred parquet（val+test），供离线阈值/组合分析")
+    ap.add_argument("--daily-k", type=int, default=15,
+                    help="按天取 top-k 单（真实交易口径，默认 15 单/天）")
     a = ap.parse_args()
 
     lgb_seeds = [int(x) for x in a.lgb_seeds.split(",") if x.strip()]
@@ -213,15 +238,18 @@ def main():
     ob_mode = max(cand, key=cand.get)
     print(f"[val] orderbook 零点口径 zero={cand['zero']:.4f} calib={cand['calib']:.4f} → 采用 {ob_mode}")
 
-    # 组合权重：val 上按 1%/2%/5% 平均 ACC 选（单点 top1% 噪声太大）
+    # 组合权重：val 上按『每天 top-k』口径选（贴合作者目标，单点全局 top1% 噪声过大）
+    dv = day_index(ob_ct[va])
+    mv = complete_days(dv)
     best_w, best_val = 1.0, -1.0
     for w in WEIGHTS:
         s = z_ob_va + w * z_ace_va
-        v = float(np.mean([acc_at_cov(s, y_va, c)[0] for c in (0.01, 0.02, 0.05)]))
-        print(f"  [val] w={w:<5.2f} acc(1/2/5%均值)={v:.4f}")
-        if v > best_val:
-            best_val, best_w = v, w
-    print(f"[val] 选出 w={best_w}（val 1/2/5% 均值={best_val:.4f}）")
+        a = daily_topk_eval(s, y_va, dv, mv, a.daily_k).mean()
+        g = float(np.mean([acc_at_cov(s, y_va, c)[0] for c in (0.01, 0.02, 0.05)]))
+        print(f"  [val] w={w:<5.2f} 按天top{a.daily_k}={a:.4f} 全局1/2/5%={g:.4f}")
+        if a > best_val:
+            best_val, best_w = a, w
+    print(f"[val] 选出 w={best_w}（按天 top{a.daily_k} 日均={best_val:.4f}，完整天={int(mv.sum())}）")
 
     z_ob_te = zc((p_all[te] - 0.5), m_ob, s_ob)
     z_ace_te = zc(ace[te], m_ace, s_ace)
@@ -261,22 +289,26 @@ def main():
     pred_up = (ace_te > 0).astype(int)
     print(f"[agree] 同向占比={agree.mean():.3f}  同向ACC={float((pred_up[agree] == y_te[agree]).mean()):.4f}")
 
-    # 逐日稳定性（目标口径 = 每天 ~1% 的单量）
+    # 逐日稳定性：真实交易口径 = 每天固定 top-k（而不是"全局 top 1%"，后者会把信号堆在少数天）
     ct_te = ob_ct[te]
-    day_id = (ct_te // 86_400_000).astype(np.int64)
-
-    def daily(score, cov, name):
-        k = max(1, int(len(y_te) * cov))
-        idx = np.argsort(-np.abs(score))[:k]
-        d, yv, sv = day_id[idx], y_te[idx], score[idx]
-        accs = np.array([float(((sv[d == u] > 0).astype(int) == yv[d == u]).mean())
-                         for u in np.unique(d)])
-        print(f"[daily] {name}@{cov:.0%}: 天数={len(accs)} 单/天={k / len(np.unique(day_id)):.1f} "
-              f"日均ACC={accs.mean():.4f} 中位={np.median(accs):.4f} "
-              f"最差10%={np.percentile(accs, 10):.4f} 最差={accs.min():.4f}")
-
-    daily(combined, 0.01, "combined")
-    daily(ob_te, 0.01, "orderbook")
+    day_id = day_index(ct_te)
+    m_te = complete_days(day_id)
+    n_days = len(np.unique(day_id))
+    print(f"\n[按天 top{a.daily_k}] 完整天={int(m_te.sum())}/{n_days}  "
+          f"总单量={int(m_te.sum()) * a.daily_k}（日均 {a.daily_k} 单）")
+    print(f"{'腿':<12}{'天数':>6}{'日均ACC':>10}{'中位':>9}{'p10':>8}{'最差':>8}{'≥65%天占比':>12}")
+    for name, s in [("faiss", ace_te), ("orderbook", ob_te), ("combined", combined), ("LR", s_lr_te)]:
+        accs = daily_topk_eval(s, y_te, day_id, m_te, a.daily_k)
+        print(f"{name:<12}{len(accs):>6}{accs.mean():>10.4f}{np.median(accs):>9.4f}"
+              f"{np.percentile(accs, 10):>8.4f}{accs.min():>8.4f}{(accs >= 0.65).mean():>12.3f}")
+    # 对照：全局 top1%（不保证每天有单，信号集中在少数天）
+    for name, s in [("orderbook", ob_te), ("combined", combined)]:
+        k = max(1, int(len(y_te) * 0.01))
+        idx = np.argsort(-np.abs(s))[:k]
+        dd = day_index(ct_te[idx])
+        accs = np.array([float(((s[idx][dd == u] > 0).astype(int) == y_te[idx][dd == u]).mean())
+                         for u in np.unique(dd)])
+        print(f"[全局1%] {name}: 覆盖天数={len(accs)}/{n_days} 日均ACC={accs.mean():.4f}")
 
     if a.save_pred:
         out = pl.concat([
