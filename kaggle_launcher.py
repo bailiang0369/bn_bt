@@ -41,7 +41,7 @@ PROJECTS = {
         title="BTCUSDT OrderBook x faiss Morph Fusion A/B",
         entry="orderbook.fusion_test",
         enable_internet=True,
-        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        dataset_sources=["byh850515/btcusdt-orderbook-features", "byh850515/eth-btc-1m-2020"],
     ),
 }
 
