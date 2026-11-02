@@ -37,7 +37,7 @@ PROJECTS = {
         dataset_sources=["byh850515/btcusdt-orderbook-features"],
     ),
     "fusion": dict(
-        slug="byh850515/btc-orderbook-morph-fusion",
+        slug="byh850515/btcusdt-orderbook-x-faiss-morph-fusion-a-b",
         title="BTCUSDT OrderBook x faiss Morph Fusion A/B",
         entry="orderbook.fusion_test",
         enable_internet=False,
