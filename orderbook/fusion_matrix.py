@@ -174,13 +174,15 @@ def main():
     ap.add_argument("--variants",
                     default=os.environ.get("KAGGLE_VARIANTS", ",".join(VARIANTS)))
     ap.add_argument("--save-pred", default=os.environ.get("KAGGLE_FUSION_PRED"))
-    ap.add_argument("--test-offset-days", type=int,
-                    default=int(os.environ.get("KAGGLE_TEST_OFFSET", "0")),
-                    help="时间轴整体前移 N 天做样本外复核（训练也随之前移）")
+    ap.add_argument("--test-offsets",
+                    default=os.environ.get("KAGGLE_TEST_OFFSETS",
+                                           os.environ.get("KAGGLE_TEST_OFFSET", "0")),
+                    help="时间轴整体前移的天数列表（0=原始 test），用于样本外复核")
     a = ap.parse_args()
 
     seeds = [int(s) for s in a.seeds.split(",") if s.strip()]
     horizons = [int(s) for s in a.horizons.split(",") if s.strip()]
+    offsets = [int(s) for s in a.test_offsets.split(",") if s.strip()]
     names = [v.strip() for v in a.variants.split(",") if v.strip() and v.strip() in VARIANTS]
 
     ob0 = load_orderbook()
@@ -188,23 +190,24 @@ def main():
 
     all_rows = {}
     for h in horizons:
-        save = None
-        if a.save_pred:
-            stem = a.save_pred.rsplit(".parquet", 1)[0]
-            save = f"{stem}_h{h}.parquet"
-        # 不同 horizon 的 drop_nulls 行数不同，派生特征不跨 horizon 复用（成本仅几秒）
-        all_rows[h] = run_horizon(ob0, h, names, seeds, a.rounds, a.daily_k,
-                                  save, a.test_offset_days)
+        for off in offsets:
+            save = None
+            if a.save_pred:
+                stem = a.save_pred.rsplit(".parquet", 1)[0]
+                save = f"{stem}_h{h}_off{off}.parquet"
+            # 不同 horizon 的 drop_nulls 行数不同，派生特征不跨 horizon 复用（成本仅几秒）
+            all_rows[(h, off)] = run_horizon(ob0, h, names, seeds, a.rounds, a.daily_k,
+                                             save, off)
 
-    print("\n" + "=" * 72)
-    print("跨 horizon 汇总（按天 top%d）" % a.daily_k)
-    print(f"{'h':>4}{'最优变体':>12}{'按天':>10}{'全局1%':>10}")
-    for h, rows in all_rows.items():
+    print("\n" + "=" * 78)
+    print("汇总（按天 top%d）" % a.daily_k)
+    print(f"{'h':>4}{'前移天':>8}{'最优变体':>14}{'按天':>10}{'全局1%':>10}{'平均bp':>9}")
+    for (h, off), rows in all_rows.items():
         best = max(rows, key=lambda r: r[3])
-        print(f"{h:>4}{best[0]:>12}{best[3]:>10.4f}{best[2]:>10.4f}")
-    overall = max(((h, r) for h, rows in all_rows.items() for r in rows), key=lambda x: x[1][3])
-    print(f"\n[结论] 全局最优: horizon={overall[0]} 变体={overall[1][0]} 按天={overall[1][3]:.4f}"
-          f"（目标 0.65）")
+        print(f"{h:>4}{off:>8}{best[0]:>14}{best[3]:>10.4f}{best[2]:>10.4f}{best[4]:>9.2f}")
+    overall = max(((k, r) for k, rows in all_rows.items() for r in rows), key=lambda x: x[1][3])
+    print(f"\n[结论] 全局最优: horizon={overall[0][0]} 前移={overall[0][1]}天 "
+          f"变体={overall[1][0]} 按天={overall[1][3]:.4f}（目标 0.65）")
 
 
 if __name__ == "__main__":

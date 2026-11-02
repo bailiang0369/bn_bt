@@ -68,6 +68,16 @@ PROJECTS = {
              "KAGGLE_VARIANTS": "base,derived,minret2,reg,combo,amp",
              "KAGGLE_FUSION_PRED": "/kaggle/working/matrix_pred.parquet"},
     ),
+    # 多 horizon 分数混合：h=1 强信号补 h=3（合并成单一打分）
+    "blend3": dict(
+        slug="byh850515/btcusdt-blend-h123",
+        title="BTCUSDT Blend H1 H2 H3",
+        entry="orderbook.blend_h",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"KAGGLE_HORIZONS": "1,2,3",
+             "KAGGLE_FUSION_PRED": "/kaggle/working/blend_pred.parquet"},
+    ),
     # 15min 形态时序模型（1D CNN，CPU）：faiss 腿的替代/升级，产出 pred parquet 供组合器使用
     "morph15": dict(
         slug="byh850515/btcusdt-15min-morph-ts-1d-cnn-cpu",
