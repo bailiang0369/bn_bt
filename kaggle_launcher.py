@@ -70,6 +70,14 @@ PROJECTS = {
              "KAGGLE_SEEDS": "42,43,44,45,46,47,48,49,50,51",
              "KAGGLE_FUSION_PRED": "/kaggle/working/matrix_pred.parquet"},
     ),
+    # 3min 攻坚 4：固定轮数 vs 早停（修集成不稳定）
+    "h3fixed": dict(
+        slug="byh850515/btcusdt-h3-fixed",
+        title="BTCUSDT H3 Fixed",
+        entry="orderbook.h3_fixed",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+    ),
     # 3min 攻坚 3：时段稳定性验证（多 test 段）
     "h3session": dict(
         slug="byh850515/btcusdt-h3-session",
