@@ -64,9 +64,10 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=["byh850515/btcusdt-orderbook-features"],
         env={"KAGGLE_HORIZON": "3",
-             "KAGGLE_HORIZONS": "1,2",
-             "KAGGLE_VARIANTS": "base,derived,reg",
-             "KAGGLE_TEST_OFFSETS": "0,60,120",
+             "KAGGLE_HORIZONS": "1",
+             "KAGGLE_VARIANTS": "base,derived,reg,dr",
+             "KAGGLE_TEST_OFFSETS": "0",
+             "KAGGLE_SEEDS": "42,43,44,45,46,47,48,49,50,51",
              "KAGGLE_FUSION_PRED": "/kaggle/working/matrix_pred.parquet"},
     ),
     # 多 horizon 分数混合：h=1 强信号补 h=3（合并成单一打分）

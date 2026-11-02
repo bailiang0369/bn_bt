@@ -40,6 +40,9 @@ VARIANTS = {
                      extra=dict(num_leaves=31, min_child_samples=500,
                                 feature_fraction=0.6, lambda_l2=5.0)),
     "amp":      dict(x="base", decay=0, minret=0, extra=None, sort="amp"),
+    "dr":       dict(x="der", decay=0, minret=0, sort="p",
+                     extra=dict(num_leaves=31, min_child_samples=500,
+                                feature_fraction=0.6, lambda_l2=5.0)),
     # 叠加候选（矩阵第一轮里单项最好的组合）
     "combo":    dict(x="der", decay=0, minret=2, sort="p",
                      extra=dict(num_leaves=31, min_child_samples=500,
@@ -169,7 +172,7 @@ def main():
     ap = argparse.ArgumentParser(description="orderbook 变体矩阵（多 horizon）")
     ap.add_argument("--horizons", default=os.environ.get("KAGGLE_HORIZONS", "3"))
     ap.add_argument("--rounds", type=int, default=1000)
-    ap.add_argument("--seeds", default="42,43,44,45,46")
+    ap.add_argument("--seeds", default=os.environ.get("KAGGLE_SEEDS", "42,43,44,45,46"))
     ap.add_argument("--daily-k", type=int, default=15)
     ap.add_argument("--variants",
                     default=os.environ.get("KAGGLE_VARIANTS", ",".join(VARIANTS)))
