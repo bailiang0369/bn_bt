@@ -9,6 +9,7 @@
 """
 import sys
 import os
+import glob
 import argparse
 from pathlib import Path
 
@@ -28,16 +29,24 @@ SEED = 42
 
 
 def load_data():
+    hits = []
+    if os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):
+        hits = sorted(glob.glob("/kaggle/input/**/BTCUSDT.parquet", recursive=True))
     local = ROOT / "data" / "BTCUSDT.parquet"
-    kaggle = Path(f"/kaggle/input/{DATASET_SLUG}/BTCUSDT.parquet")
-    if os.environ.get("KAGGLE_KERNEL_RUN_TYPE") and kaggle.exists():
-        p = kaggle
+    if hits:
+        p = hits[0]
     elif local.exists():
-        p = local
+        p = str(local)
     else:
-        p = kaggle
+        print("[debug] /kaggle/input 顶层:",
+              os.listdir("/kaggle/input") if os.path.isdir("/kaggle/input") else "不存在")
+        for root, _dirs, files in os.walk("/kaggle/input"):
+            for f in files:
+                if f.endswith(".parquet"):
+                    print("[debug] parquet:", os.path.join(root, f))
+        raise FileNotFoundError("未找到 BTCUSDT.parquet（/kaggle/input 与本地 data/ 均无）")
     print(f"[load] {p}")
-    return pl.read_parquet(str(p)).sort("close_time")
+    return pl.read_parquet(p).sort("close_time")
 
 
 def cluster_ids(arr, w, r, n_clusters, k_train, is_indicator):
