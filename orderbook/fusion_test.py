@@ -124,6 +124,8 @@ def main():
     ap.add_argument("--kline-file", default=None, help="烟测：指定 K 线 parquet")
     ap.add_argument("--lgb-seeds", default="42,43,44,45,46")
     ap.add_argument("--faiss-seeds", default="42,43,44")
+    ap.add_argument("--save-pred", default=os.environ.get("KAGGLE_FUSION_PRED"),
+                    help="输出逐行 pred parquet（val+test），供离线阈值/组合分析")
     a = ap.parse_args()
 
     lgb_seeds = [int(x) for x in a.lgb_seeds.split(",") if x.strip()]
@@ -201,45 +203,92 @@ def main():
     def zc(score, m, s):
         return (score - m) / s
 
+    y_va, y_te = y[va], y[te]
     z_ace_va = zc(ace[va], m_ace, s_ace)
     z_ob_va = zc((p_all[va] - 0.5), m_ob, s_ob)
-    y_va = y[va]
 
+    # 单独腿的零点：0（概率 0.5）还是 train 均值校准。在 val 上选，不碰 test。
+    cand = {"zero": acc_at_cov(p_all[va] - 0.5, y_va, 0.01)[0],
+            "calib": acc_at_cov(z_ob_va, y_va, 0.01)[0]}
+    ob_mode = max(cand, key=cand.get)
+    print(f"[val] orderbook 零点口径 zero={cand['zero']:.4f} calib={cand['calib']:.4f} → 采用 {ob_mode}")
+
+    # 组合权重：val 上按 1%/2%/5% 平均 ACC 选（单点 top1% 噪声太大）
     best_w, best_val = 1.0, -1.0
     for w in WEIGHTS:
-        acc1, _ = acc_at_cov(z_ob_va + w * z_ace_va, y_va, 0.01)
-        if acc1 > best_val:
-            best_val, best_w = acc1, w
-    print(f"[val] 按 top1% ACC 选出的权重 w={best_w}（val@1%={best_val:.4f}）")
+        s = z_ob_va + w * z_ace_va
+        v = float(np.mean([acc_at_cov(s, y_va, c)[0] for c in (0.01, 0.02, 0.05)]))
+        print(f"  [val] w={w:<5.2f} acc(1/2/5%均值)={v:.4f}")
+        if v > best_val:
+            best_val, best_w = v, w
+    print(f"[val] 选出 w={best_w}（val 1/2/5% 均值={best_val:.4f}）")
 
-    y_te = y[te]
+    z_ob_te = zc((p_all[te] - 0.5), m_ob, s_ob)
+    z_ace_te = zc(ace[te], m_ace, s_ace)
+
+    # LR stacker（val 训练、test 评估，只做候选）
+    from sklearn.linear_model import LogisticRegression
+    lr = LogisticRegression(max_iter=1000)
+    lr.fit(np.column_stack([z_ob_va, z_ace_va]), y_va)
+    s_lr_te = lr.decision_function(np.column_stack([z_ob_te, z_ace_te]))
+
     ace_te = ace[te]
-    ob_te = (p_all[te] - 0.5)
-    z_ace_te = zc(ace_te, m_ace, s_ace)
-    z_ob_te = zc(ob_te, m_ob, s_ob)
+    ob_te = (p_all[te] - 0.5) if ob_mode == "zero" else z_ob_te
     combined = z_ob_te + best_w * z_ace_te
 
     base = float(y_te.mean())
-    print("\n" + "=" * 78)
-    print(f"[test] n={len(y_te)} 基准={base:.4f} orderbook_seed_iters={iters}  w={best_w}")
-    print(f"[单独AUC] faiss={roc_auc_score(y_te, ace_te):.4f}  orderbook={roc_auc_score(y_te, p_all[te]):.4f}")
     days = len(y_te) / 1440.0
-    print("=" * 78)
-    print(f"{'cov':>6}{'n':>9}{'单/天':>8}{'faiss':>10}{'orderbook':>12}{'combined':>12}")
+    print("\n" + "=" * 84)
+    print(f"[test] n={len(y_te)} 基准={base:.4f} orderbook_seed_iters={iters}  w={best_w}  ob_mode={ob_mode}")
+    print(f"[单独AUC] faiss={roc_auc_score(y_te, ace_te):.4f}  orderbook={roc_auc_score(y_te, p_all[te]):.4f}")
+    print("=" * 84)
+    print(f"{'cov':>6}{'n':>9}{'单/天':>8}{'faiss':>10}{'orderbook':>12}{'combined':>11}{'LR':>9}")
+    n1 = 0
     for cov in COVS:
         af, _ = acc_at_cov(ace_te, y_te, cov)
         ao, _ = acc_at_cov(ob_te, y_te, cov)
         ac, n = acc_at_cov(combined, y_te, cov)
-        print(f"{cov:>6.0%}{n:>9}{n / days:>8.1f}{af:>10.4f}{ao:>12.4f}{ac:>12.4f}")
-    best1 = max(af, ao, ac) if COVS[0] == 0.01 else None
-    if best1 is not None:
-        print(f"[目标] 1% 覆盖（≈{n / days:.1f} 单/天）最高={best1:.4f}  "
-              f"短期 0.65 → {'达成' if best1 >= 0.65 else '未达成'}  长期 0.70 → "
-              f"{'达成' if best1 >= 0.70 else '未达成'}")
+        al, _ = acc_at_cov(s_lr_te, y_te, cov)
+        if cov == 0.01:
+            n1 = n
+        print(f"{cov:>6.0%}{n:>9}{n / days:>8.1f}{af:>10.4f}{ao:>12.4f}{ac:>11.4f}{al:>9.4f}")
+    best1 = max(acc_at_cov(x, y_te, 0.01)[0] for x in (ace_te, ob_te, combined, s_lr_te))
+    print(f"[目标] 1% 覆盖（{n1 / days:.1f} 单/天）最高={best1:.4f}  "
+          f"短期 0.65 → {'达成' if best1 >= 0.65 else '未达成'}  "
+          f"长期 0.70 → {'达成' if best1 >= 0.70 else '未达成'}")
 
     agree = np.sign(ace_te) == np.sign(ob_te)
     pred_up = (ace_te > 0).astype(int)
-    print(f"\n[agree] 同向占比={agree.mean():.3f}  同向ACC={float((pred_up[agree] == y_te[agree]).mean()):.4f}")
+    print(f"[agree] 同向占比={agree.mean():.3f}  同向ACC={float((pred_up[agree] == y_te[agree]).mean()):.4f}")
+
+    # 逐日稳定性（目标口径 = 每天 ~1% 的单量）
+    ct_te = ob_ct[te]
+    day_id = (ct_te // 86_400_000).astype(np.int64)
+
+    def daily(score, cov, name):
+        k = max(1, int(len(y_te) * cov))
+        idx = np.argsort(-np.abs(score))[:k]
+        d, yv, sv = day_id[idx], y_te[idx], score[idx]
+        accs = np.array([float(((sv[d == u] > 0).astype(int) == yv[d == u]).mean())
+                         for u in np.unique(d)])
+        print(f"[daily] {name}@{cov:.0%}: 天数={len(accs)} 单/天={k / len(np.unique(day_id)):.1f} "
+              f"日均ACC={accs.mean():.4f} 中位={np.median(accs):.4f} "
+              f"最差10%={np.percentile(accs, 10):.4f} 最差={accs.min():.4f}")
+
+    daily(combined, 0.01, "combined")
+    daily(ob_te, 0.01, "orderbook")
+
+    if a.save_pred:
+        out = pl.concat([
+            pl.DataFrame({"split": ["val"] * len(y_va), "close_time": ob_ct[va],
+                          "target": y_va.astype(np.int8), "p_ob": p_all[va],
+                          "ace": ace[va], "z_ob": z_ob_va, "z_ace": z_ace_va}),
+            pl.DataFrame({"split": ["test"] * len(y_te), "close_time": ct_te,
+                          "target": y_te.astype(np.int8), "p_ob": p_all[te],
+                          "ace": ace_te, "z_ob": z_ob_te, "z_ace": z_ace_te}),
+        ])
+        out.write_parquet(a.save_pred)
+        print(f"[save] {a.save_pred} rows={out.height}")
 
 
 if __name__ == "__main__":
