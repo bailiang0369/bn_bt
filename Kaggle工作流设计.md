@@ -31,6 +31,7 @@ bn_bt/
 │   └── kernel-metadata.json   # slug=btc-orderbook-lgbm
 ├── kaggle_bootstrap.py        # 【新增】kernel 的 code_file，极小，与项目解耦
 ├── kaggle_launcher.py         # 【新增】本地编排器（不进 kernel）
+├── requirements.txt           # 【新增】依赖清单，bootstrap 按此 pip install -r
 ├── .gitignore                 # 已排除 data/ __pycache__/ .codebuddy/
 └── 经验文档...
 ```
@@ -50,12 +51,12 @@ if not os.path.exists(ROOT):
     subprocess.run(["git", "clone", "--depth=1", REPO, ROOT], check=True)
 
 sys.path.insert(0, ROOT)
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "faiss-cpu", "polars", "lightgbm"])
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", os.path.join(ROOT, "requirements.txt")], check=True)
 importlib.import_module(ENTRY).main()
 ```
 要点：
 - `enable_internet=true`（clone 必需）。
-- faiss-cpu 非 Kaggle 预装，必须 pip install。
+- 依赖统一从仓库根 `requirements.txt` 安装（`pip install -r requirements.txt`），不在 bootstrap 硬编码——faiss-cpu 等非 Kaggle 预装的库都列在其中，**改依赖只改这一处**。
 - 私有库：用 Kaggle Secrets 存 `GITHUB_TOKEN`，bootstrap 拼进 URL；公开库无需 token。
 - ENTRY 决定跑哪个项目，可由 kernel-metadata 的环境变量或每个项目一个小变体设定。
 
