@@ -43,7 +43,10 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=["byh850515/btcusdt-orderbook-features", "byh850515/eth-btc-1m-2020"],
         env={"KAGGLE_HORIZON": "3",
-             "KAGGLE_FUSION_PRED": "/kaggle/working/fusion_pred_3m.parquet"},
+             "KAGGLE_FUSION_PRED": "/kaggle/working/fusion_pred_3m.parquet",
+             "KAGGLE_FUSION_DERIVED": "1",
+             "KAGGLE_FUSION_DECAY": "120",
+             "KAGGLE_FUSION_WFIXED": "0"},
     ),
     "fusion15": dict(
         slug="byh850515/btcusdt-orderbook-x-faiss-morph-fusion-a-b",

@@ -141,9 +141,8 @@ def add_derived_features(df):
     for pref in ("ob_f_", "ob_s_", "atk_f_", "atk_s_"):
         sub = [c for c in cols if c.startswith(pref)]
         if len(sub) >= 3:
-            e = _cross_stats(sub, pref)
-            exprs += e
-            used += [x.meta.output_name() for x in e]
+            exprs += _cross_stats(sub, pref)
+            used += [f"der_{pref}mean", f"der_{pref}std"]
     for c in [x for x in DER_CORE if x in cols]:
         for w in (5, 15):
             exprs.append(pl.col(c).rolling_mean(w).alias(f"der_{c}_m{w}"))
@@ -201,6 +200,13 @@ def main():
     ap.add_argument("--decay-days", type=float,
                     default=float(os.environ.get("KAGGLE_FUSION_DECAY", "0")),
                     help="训练样本时间衰减半衰期（天），0=关闭")
+    ap.add_argument("--min-ret-bp", type=float,
+                    default=float(os.environ.get("KAGGLE_FUSION_MINRET", "0")),
+                    help="训练样本过滤：只保留 |未来 horizon 收益| >= 该值(bp)的样本，0=关闭")
+    ap.add_argument("--w-fixed", type=float,
+                    default=(float(os.environ["KAGGLE_FUSION_WFIXED"])
+                             if os.environ.get("KAGGLE_FUSION_WFIXED") else None),
+                    help="固定组合权重（跳过 val 选择）")
     a = ap.parse_args()
 
     lgb_seeds = [int(x) for x in a.lgb_seeds.split(",") if x.strip()]
@@ -269,12 +275,22 @@ def main():
     base_cols = [c for c in ob.columns if c not in ("target", "close_time")]
     X = ob.select(base_cols).to_numpy().astype(np.float32)
     y = target
-    weight = None
+    weight, wparts = None, []
     if a.decay_days > 0:
         age_days = (T_end - ob_ct) / 86_400_000.0
-        weight = np.power(0.5, np.clip(age_days, 0, None) / a.decay_days)
+        wparts.append(np.power(0.5, np.clip(age_days, 0, None) / a.decay_days))
         print(f"[weight] 时间衰减半衰期={a.decay_days:g}天 → train 权重 "
-              f"{weight[tr].min():.3f}~{weight[tr].max():.3f}")
+              f"{wparts[-1][tr].min():.3f}~{wparts[-1][tr].max():.3f}")
+    if a.min_ret_bp > 0:
+        fwd = np.zeros(L)
+        fwd[:-h] = ob_close[h:] / ob_close[:-h] - 1.0
+        keep = (np.abs(fwd) * 1e4 >= a.min_ret_bp).astype(np.float64)
+        wparts.append(keep)
+        print(f"[filter] 训练保留 |fwd{h}min ret|>={a.min_ret_bp:g}bp: "
+              f"train {keep[tr].mean():.3f}  val {keep[va].mean():.3f}  "
+              f"test {keep[te].mean():.3f}（test 只用于报告，不参与训练）")
+    if wparts:
+        weight = np.prod(np.vstack(wparts), axis=0)
     p_all, iters = train_lgb_avg(X, y, tr, va, base_cols, lgb_seeds, a.rounds, weight)
 
     def mean_std(ref):
@@ -300,14 +316,19 @@ def main():
     dv = day_index(ob_ct[va])
     mv = complete_days(dv)
     best_w, best_val = 1.0, -1.0
-    for w in WEIGHTS:
-        s = z_ob_va + w * z_ace_va
-        dacc = float(daily_topk_eval(s, y_va, dv, mv, a.daily_k).mean())
-        g = float(np.mean([acc_at_cov(s, y_va, c)[0] for c in (0.01, 0.02, 0.05)]))
-        print(f"  [val] w={w:<5.2f} 按天top{a.daily_k}={dacc:.4f} 全局1/2/5%={g:.4f}")
-        if dacc > best_val:
-            best_val, best_w = dacc, w
-    print(f"[val] 选出 w={best_w}（按天 top{a.daily_k} 日均={best_val:.4f}，完整天={int(mv.sum())}）")
+    if a.w_fixed is not None:
+        best_w, best_val = a.w_fixed, float("nan")
+        print(f"[val] w 固定为 {best_w}")
+    else:
+        for w in WEIGHTS:
+            s = z_ob_va + w * z_ace_va
+            dacc = float(daily_topk_eval(s, y_va, dv, mv, a.daily_k).mean())
+            g = float(np.mean([acc_at_cov(s, y_va, c)[0] for c in (0.01, 0.02, 0.05)]))
+            print(f"  [val] w={w:<5.2f} 按天top{a.daily_k}={dacc:.4f} 全局1/2/5%={g:.4f}")
+            if dacc > best_val:
+                best_val, best_w = dacc, w
+        print(f"[val] 选出 w={best_w}（按天 top{a.daily_k} 日均={best_val:.4f}，"
+              f"完整天={len(np.unique(dv[mv]))}）")
 
     z_ob_te = zc((p_all[te] - 0.5), m_ob, s_ob)
     z_ace_te = zc(ace[te], m_ace, s_ace)
@@ -352,8 +373,9 @@ def main():
     day_id = day_index(ct_te)
     m_te = complete_days(day_id)
     n_days = len(np.unique(day_id))
-    print(f"\n[按天 top{a.daily_k}] 完整天={int(m_te.sum())}/{n_days}  "
-          f"总单量={int(m_te.sum()) * a.daily_k}（日均 {a.daily_k} 单）")
+    n_full = len(np.unique(day_id[m_te]))
+    print(f"\n[按天 top{a.daily_k}] 完整天={n_full}/{n_days}  "
+          f"总单量={n_full * a.daily_k}（日均 {a.daily_k} 单）")
     print(f"{'腿':<12}{'天数':>6}{'日均ACC':>10}{'中位':>9}{'p10':>8}{'最差':>8}{'≥65%天占比':>12}")
     for name, s in [("faiss", ace_te), ("orderbook", ob_te), ("combined", combined), ("LR", s_lr_te)]:
         accs = daily_topk_eval(s, y_te, day_id, m_te, a.daily_k)
