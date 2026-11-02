@@ -76,15 +76,48 @@ def _poll(slug):
         time.sleep(30)
 
 
+def _decode_logs(raw):
+    """kaggle kernels logs 返回 JSON 数组 [{stream_name,time,data},...]，
+    也可能带前导逗号或逐行对象，统一解码为纯文本。"""
+    import json as _json
+    raw = raw.strip()
+    if not raw:
+        return ""
+    for candidate in (raw, raw.lstrip(",")):
+        try:
+            arr = _json.loads(candidate)
+            if isinstance(arr, list):
+                return "".join(i.get("data", "") for i in arr)
+        except Exception:
+            pass
+    parts = []
+    for line in raw.splitlines():
+        line = line.strip().lstrip(",").rstrip(",")
+        if not line:
+            continue
+        try:
+            obj = _json.loads(line)
+            if isinstance(obj, dict) and "data" in obj:
+                parts.append(obj["data"])
+        except Exception:
+            pass
+    return "".join(parts) if parts else raw
+
+
 def _logs(slug, parse=False):
     out = subprocess.run(["kaggle", "kernels", "logs", slug],
                          capture_output=True, text=True).stdout
-    print(out)
+    text = _decode_logs(out)
+    print(text)
     if parse:
         print("=== 关键指标 ===")
-        for ln in out.splitlines():
-            if any(k in ln for k in ("ACC=", "AUC=", "选择性", "覆盖率", "best_iteration")):
-                print("  ", ln.strip())
+        for ln in text.splitlines():
+            s = ln.strip()
+            if not s:
+                continue
+            if any(k in s for k in ("comb@", "基准", "准确率", "AUC", "ACC",
+                                    "选择性", "覆盖率", "best_iteration", "差值", "结论")):
+                print("  ", s)
 
 
 def run(project, push, wait, logs, parse):
