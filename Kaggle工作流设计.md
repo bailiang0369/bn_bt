@@ -1,11 +1,11 @@
-# Kaggle 跨项目工作流设计（设计稿，确认后实现）
+# Kaggle 跨项目工作流设计
 
-> 目标：Kaggle 只当算力，GitHub 当代码源。kernel 改成"极小 bootstrap"，运行时把 GitHub 上的多文件项目 clone 下来、装依赖、调入口。再配一个本地 launcher 编排 push / 轮询 / 拉日志 / 解析，GPU 默认关闭。
-> GitHub 仓库（已建）：https://github.com/bailiang0369/bn_bt
+> 目标：Kaggle 只当算力，GitHub 当代码源。kernel 只放一个极小 bootstrap，运行时把 GitHub 上的多文件项目 clone 下来、装依赖、调入口。再配一个本地 launcher 编排 push / 轮询 / 拉日志 / 解析，GPU 默认关闭。
+> GitHub 仓库（公开）：https://github.com/bailiang0369/bn_bt
 
 ## 0. 动机与现状痛点
-- Kaggle `script` 类型 kernel 只上传 `code_file` 那一个文件。当前为把逻辑跑起来，被迫把 `download_klines` / `run_clustering` / `eval` / CVD 全 inline 进 `morph_kaggle/kaggle_entry.py`，每次改一点都要重推整个巨无霸。
-- 无法复用多文件结构（`tool/`、`orderbook_kaggle/` 共享代码），跨项目（形态 / 订单簿）重复造轮子。
+- Kaggle `script` 类型 kernel 只上传 `code_file` 那一个文件。之前被迫把 `download_klines` / `run_clustering` / `eval` / CVD 全 inline 进 `morph/kaggle_entry.py`，每次改一点都要重推整个巨无霸。
+- 无法复用多文件结构（`tool/`、`orderbook/` 共享代码），跨项目（形态 / 订单簿）重复造轮子。
 - 正解：**代码放 GitHub，Kaggle 只跑 bootstrap**；改代码只改 GitHub，kernel 重拉最新执行。
 
 ## 1. 总体架构
@@ -16,87 +16,103 @@
 │ /bn_bt       │                                     │  + pip install 依赖       │
 └──────────────┘                                     │  + import <ENTRY>; main() │
                                                       └──────────────────────────┘
-本地 kaggle_launcher.py ── push / 轮询 status / 拉 logs / 解析 ──► Kaggle API
+本地 kaggle_launcher.py ── 生成 kernel 目录 / push / 轮询 / logs / 解析 ──► Kaggle API
 数据：Kaggle datasets（eth-btc-1m-2020, btcusdt-orderbook-features）仍作为 input 挂载，不变。
 ```
 
-## 2. 仓库目录结构（GitHub 侧 = 当前本地仓库，基本不动）
+## 2. 仓库目录结构
 ```
 bn_bt/
 ├── data/                      # 大文件，.gitignore 排除，不进 GitHub
 ├── tool/pl_exp.py             # 共享工具
-├── morph_kaggle/              # 项目A：faiss 形态聚类（含 kaggle_entry.py 入口）
-│   └── kernel-metadata.json   # slug=btc-vs-eth-faiss-cpu-2020
-├── orderbook_kaggle/          # 项目B：订单簿 LightGBM（含 train.py 入口）
-│   └── kernel-metadata.json   # slug=btc-orderbook-lgbm
-├── kaggle_bootstrap.py        # 【新增】kernel 的 code_file，极小，与项目解耦
-├── kaggle_launcher.py         # 【新增】本地编排器（不进 kernel）
-├── requirements.txt           # 【新增】依赖清单，bootstrap 按此 pip install -r
-├── .gitignore                 # 已排除 data/ __pycache__/ .codebuddy/
+├── morph/                     # 项目A：faiss 形态聚类（真实项目代码，非 kaggle 专用）
+│   ├── kaggle_entry.py        # 入口 main()
+│   ├── download_klines.py / make_dataset/ / 形态聚类经验.md / ...
+├── orderbook/                 # 项目B：订单簿 LightGBM（真实项目代码）
+│   ├── train.py / extend_features.py / feature_spec.md / _cov.py
+│   └── kaggle_ds/dataset-metadata.json   # 仅 orderbook 用的数据集元数据（非 kernel）
+├── kaggle_bootstrap.py        # 【Kaggle 胶水】唯一被推上 Kaggle 的 code_file
+├── kaggle_launcher.py         # 【Kaggle 胶水】本地编排器（不进 kernel）
+├── requirements.txt           # 依赖清单，bootstrap 按此 pip install -r
+├── .gitignore
 └── 经验文档...
 ```
-- 每个项目自带 `kernel-metadata.json`（slug/title/ENTRY 不同），由 launcher 按模板生成/校验。
-- `kaggle_bootstrap.py` 只负责"拉项目 + 装依赖 + 按 ENTRY 调入口"。
+- `morph/` `orderbook/` 是纯项目代码，去掉了误导性的 `_kaggle` 后缀——它们只是"恰好跑在 Kaggle 上"，不是 kaggle 专用。
+- **kernel-metadata.json 不再散落各项目文件夹**：它由 launcher 推 kernel 时按模板生成（见 §5），项目文件夹里只放纯代码。
+- 只有 `kaggle_bootstrap.py` / `kaggle_launcher.py` 这两层胶水叫 `kaggle_*`，因为它们确实只服务于 Kaggle。
 
 ## 3. kaggle_bootstrap.py（作为每个 kernel 的 code_file）
 ```python
 import os, sys, subprocess, importlib
-REPO  = "https://github.com/bailiang0369/bn_bt"
-ROOT  = "/kaggle/working/bn_bt"
-ENTRY = os.environ.get("KAGGLE_ENTRY", "morph_kaggle.kaggle_entry")
 
-if not os.path.exists(ROOT):
-    # 公开库可直接 clone；私有库用 Kaggle Secret 注入的 GITHUB_TOKEN：
-    # REPO = f"https://{os.environ['GITHUB_TOKEN']}:x-oauth-basic@github.com/bailiang0369/bn_bt"
-    subprocess.run(["git", "clone", "--depth=1", REPO, ROOT], check=True)
+REPO = "https://github.com/bailiang0369/bn_bt"
+ROOT = "/kaggle/working/bn_bt"
 
-sys.path.insert(0, ROOT)
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", os.path.join(ROOT, "requirements.txt")], check=True)
-importlib.import_module(ENTRY).main()
+def _entry():
+    # launcher 推 kernel 时在同目录写入 entry.txt 指定入口；本地跑回退默认/环境变量
+    here = os.path.dirname(os.path.abspath(__file__))
+    p = os.path.join(here, "entry.txt")
+    if os.path.exists(p):
+        return open(p, encoding="utf-8").read().strip()
+    return os.environ.get("KAGGLE_ENTRY", "morph.kaggle_entry")
+
+def main():
+    if not os.path.exists(ROOT):
+        # 公开库直连 clone；私有库用 Kaggle Secret 注入 GITHUB_TOKEN 拼进 URL：
+        # REPO = f"https://{os.environ['GITHUB_TOKEN']}:x-oauth-basic@github.com/bailiang0369/bn_bt"
+        subprocess.run(["git", "clone", "--depth=1", REPO, ROOT], check=True)
+    else:
+        subprocess.run(["git", "-C", ROOT, "pull", "--depth=1"], check=True)
+    sys.path.insert(0, ROOT)
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r",
+                    os.path.join(ROOT, "requirements.txt")], check=True)
+    importlib.import_module(_entry()).main()
+
+if __name__ == "__main__":
+    main()
 ```
 要点：
-- `enable_internet=true`（clone 必需）。
+- `enable_internet=true`（clone 必需；morph 还需联网下载，orderbook 关联网只用挂载 dataset）。
 - 依赖统一从仓库根 `requirements.txt` 安装（`pip install -r requirements.txt`），不在 bootstrap 硬编码——faiss-cpu 等非 Kaggle 预装的库都列在其中，**改依赖只改这一处**。
-- 私有库：用 Kaggle Secrets 存 `GITHUB_TOKEN`，bootstrap 拼进 URL；公开库无需 token。
-- ENTRY 决定跑哪个项目，可由 kernel-metadata 的环境变量或每个项目一个小变体设定。
+- 私有库：用 Kaggle Secrets 存 `GITHUB_TOKEN`，bootstrap 拼进 URL；当前仓库已 public，无需 token。
+- 入口由 launcher 写入同目录的 `entry.txt` 决定（默认 `morph.kaggle_entry`），bootstrap 不再硬编码各项目差异，所以**只有一个 bootstrap 文件**供所有项目复用。
 
 ## 4. 各项目如何接入
-| 项目 | ENTRY | slug（建议） | 入口文件 |
+| 项目 | ENTRY | slug（沿用） | 入口文件 |
 |---|---|---|---|
-| morph_kaggle | `morph_kaggle.kaggle_entry` | `btc-vs-eth-faiss-cpu-2020`（沿用） | kaggle_entry.py:main |
-| orderbook_kaggle | `orderbook_kaggle.train` | `btc-orderbook-lgbm` | train.py（需确保可 `import train; train.main()`） |
+| morph | `morph.kaggle_entry` | `btc-vs-eth-faiss-cpu-2020` | kaggle_entry.py:main |
+| orderbook | `orderbook.train` | `btc-orderbook-lgbm` | train.py:main（已确认有 main()） |
 
-- 新增项目 = 复制一份 kernel-metadata 改 slug/title/ENTRY，无需改 bootstrap。
-- orderbook 的 train.py 当前是否有 `main()` 可供 `import train; train.main()` 调用，需确认（若执行逻辑只在 `if __name__=="__main__"` 下，则需抽成 main() 或让 bootstrap 直接执行模块）。
+- 新增项目 = 在 `kaggle_launcher.py` 的 `PROJECTS` 字典里加一项（slug/title/entry/dataset_sources/enable_internet），无需在各项目文件夹放任何 json，也无需改 bootstrap。
 
 ## 5. kaggle_launcher.py（本地编排器，不进 kernel）
 命令示例：
 ```
 python kaggle_launcher.py --project morph --push --wait --logs --parse
 ```
-内部流程（复用我们已手敲的轮询/解析逻辑，固化）：
-1. 按 `--project` 取对应 kernel-metadata 模板，写入/校验 `enable_gpu:false`、`dataset_sources` 等；
-2. `kaggle kernels push -p <project_dir>`；
+内部流程：
+1. 按 `--project` 在**临时目录**生成 kernel：`拷贝 kaggle_bootstrap.py` + `写 entry.txt`（入口模块）+ `写 kernel-metadata.json`（slug/title/dataset_sources/`enable_gpu:false`/`enable_internet` 由模板定）；
+2. `kaggle kernels push -p <tmp_dir>`；
 3. 轮询 `kaggle kernels status <slug>` 至 COMPLETE/ERROR（每 30s）；
 4. `kaggle kernels logs <slug>` 拉取；
-5. 解析关键指标（覆盖率/准确率）打印。
-约束：默认 `enable_gpu=false`，绝不自动开 GPU；运行由你显式触发，不会像某些 IDE 插件偷偷占 Kaggle GPU 配额。
+5. `--parse` 时从日志提取关键指标（ACC=/AUC=/选择性/best_iteration 等）打印。
+约束：默认 `enable_gpu=false`，只用 CPU（faiss-cpu / lightgbm CPU）；运行由你显式触发，不会像某些 IDE 插件偷偷占 Kaggle GPU 配额。
 
-## 6. GitHub 推送步骤（实现阶段，需你最终确认）
-1. `git remote add origin https://github.com/bailiang0369/bn_bt`
-2. `git push -u origin master`（本环境需有推送凭证：`gh auth login` 或配置 PAT / 凭证助手；否则我无法推送，需你提供或你自己推）
-3. 之后日常：改代码 → `git commit` → `git push`；Kaggle kernel 重跑即自动 clone 最新。
-- 注：本地分支为 `master`，GitHub 默认可能是 `main`，如冲突可 `git branch -M main` 再推。
+## 6. GitHub 推送（已完成）
+- remote 已加 `origin` → `https://github.com/bailiang0369/bn_bt`，分支 `main`，已推送（本环境经 Git Credential Manager 可正常 push）。
+- 日常：改代码 → `git commit` → `git push`；Kaggle kernel 重跑即自动 clone 最新。
 
 ## 7. 前提与风险
-- **凭证**：本环境能否向该 GitHub push 待验证（gh 登录 / PAT）。私有库还需在 Kaggle 侧用 Secret 注入 token 供 kernel clone。
-- **enable_internet=true**：clone 必需，已在 bootstrap 设计里体现。
+- **凭证**：本环境可正常 push（已验证）。若以后仓库设为私有，Kaggle 侧需 Secret 注入 `GITHUB_TOKEN` 供 kernel clone。
+- **enable_internet**：morph 需要（clone + 下载）；orderbook 关联网只用挂载 dataset 即可。
 - **首次 clone 开销**：每次 kernel 启动多几十秒拉仓库，可接受。
 - **数据 dataset 不变**：eth-btc-1m-2020 / btcusdt-orderbook-features 仍作 input 挂载；项目代码仓库与数据 dataset 分离。
-- **.gitignore**：已排除 `data/`、`__pycache__/`、`.codebuddy/`，确保不把大 parquet 推上 GitHub。
+- **.gitignore**：排除 `data/`、`__pycache__/`、`.codebuddy/`，不把大 parquet 推上 GitHub。
 
-## 8. 待确认后实现
-- [ ] 仓库是否公开（决定 kernel clone 要不要 token）
-- [ ] 本环境能否 push（先 `git ls-remote` / `gh auth status` 验证）
-- [ ] launcher 是否现在一并实现，还是先只做 bootstrap + 手动 push
-- [ ] orderbook train.py 入口守卫确认（能否 `train.main()`）
+## 8. 已落地 / 待首次试运行验证
+- [x] 仓库公开、代码已推 GitHub（main）
+- [x] 目录重组为 `morph/` `orderbook/` + 根 `kaggle_bootstrap.py`/`kaggle_launcher.py`，移除冗余 metadata
+- [x] `requirements.txt` 无版本锁（各库最新）
+- [x] orderbook `train.py` 确认有 `main()`，且 `load_data()` 已 Kaggle `/kaggle/input` 自适应
+- [ ] 首次 `--project morph --push --wait --logs --parse` 实跑，确认 clone/安装/入口链路通
+- [ ] 首次 `--project orderbook` 实跑，确认 dataset 挂载路径与 `btcusdt-orderbook-features` 结构一致

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import polars as pl
 
-BASE = Path(__file__).resolve().parent.parent   # 仓库根（bn_bt/，因本文件已移入 orderbook_kaggle/）
+BASE = Path(__file__).resolve().parent.parent   # 仓库根（bn_bt/，本文件在 orderbook/ 下，parent.parent 即根）
 sys.path.insert(0, str(BASE / "tool"))          # 引入 tool/pl_exp
 from pl_exp import PolarsExp                     # noqa: E402
 
