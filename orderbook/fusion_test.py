@@ -36,12 +36,13 @@ WEIGHTS = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
 def _find(names):
     hits = []
+    on_kaggle = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE")) or os.path.isdir("/kaggle/input")
     for n in names:
-        if os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):
+        if on_kaggle:
             hits += glob.glob(f"/kaggle/input/**/{n}", recursive=True)
-        loc = ROOT / "data" / n
-        if loc.exists():
-            hits.append(str(loc))
+        for loc in (ROOT / "data" / n, ROOT / "data" / "raw" / n):
+            if loc.exists():
+                hits.append(str(loc))
     return sorted(set(hits))
 
 
@@ -78,10 +79,11 @@ def cluster_ids_kline(kline, t_end_idx, arr, w, r, nc, is_indicator, seed):
     return ids
 
 
-def kline_edge_lut(ids, kl_t, t_end_idx, nc):
-    """在【K线 2020→T_end】上算每个簇的 edge = mean(target)-0.5，返回查表数组。"""
+def kline_edge_lut(ids, kl_t, t_end_idx, nc, horizon=0):
+    """在【K线 2020→T_end-horizon】上算每个簇的 edge = mean(target)-0.5，返回查表数组。
+    purge：末尾 horizon 个样本的 target 是 t+h 的价格，会跨进 val 段。"""
     valid = (ids >= 0) & (kl_t >= 0)
-    valid[t_end_idx + 1:] = False
+    valid[max(0, t_end_idx + 1 - horizon):] = False
     codes = ids[valid].astype(np.int64)
     tv = kl_t[valid].astype(np.float64)
     sums = np.bincount(codes, weights=tv, minlength=nc)
@@ -138,10 +140,13 @@ def main():
     ob = add_target(ob, a.horizon).drop_nulls()
     L = len(ob)
     k1, k2 = int(L * 0.64), int(L * 0.80)
-    tr, va, te = slice(0, k1), slice(k1, k2), slice(k2, L)
+    # purge：训练/验证末尾 h 个样本的标签是 t+h 的价格，会跨进下一段
+    h = a.horizon
+    tr, va, te = slice(0, k1 - h), slice(k1, k2 - h), slice(k2, L)
     ob_ct = ob["close_time"].to_numpy()
-    T_end = int(ob_ct[k1 - 1])
-    print(f"[ob] rows={L} split train[0:{k1}] val[{k1}:{k2}] test[{k2}:{L}]  T_end(ms)={T_end}")
+    T_end = int(ob_ct[k1 - 1 - h])
+    print(f"[ob] rows={L} split train[0:{k1 - h}] val[{k1}:{k2 - h}] test[{k2}:{L}]  "
+          f"T_end(ms)={T_end}  purge={h}")
 
     kl_ct = kl["close_time"].to_numpy() + 1
     assert np.all(np.diff(kl_ct) >= 0), "kline close_time 非升序"
@@ -171,7 +176,7 @@ def main():
             for sd in faiss_seeds:
                 ids = cluster_ids_kline(kl, t_end_idx, arr, cfg["window"], cfg["repeat"],
                                         cfg["n_clusters"], ind, sd)
-                lut = kline_edge_lut(ids, kl_t, t_end_idx, cfg["n_clusters"])
+                lut = kline_edge_lut(ids, kl_t, t_end_idx, cfg["n_clusters"], a.horizon)
                 ob_ids = np.where(valid, ids[nearest], -1)
                 ob_edge = np.zeros(L, dtype=np.float64)
                 m = ob_ids >= 0
@@ -218,13 +223,19 @@ def main():
     print("\n" + "=" * 78)
     print(f"[test] n={len(y_te)} 基准={base:.4f} orderbook_seed_iters={iters}  w={best_w}")
     print(f"[单独AUC] faiss={roc_auc_score(y_te, ace_te):.4f}  orderbook={roc_auc_score(y_te, p_all[te]):.4f}")
+    days = len(y_te) / 1440.0
     print("=" * 78)
-    print(f"{'cov':>6}{'n':>9}{'faiss':>10}{'orderbook':>12}{'combined':>12}")
+    print(f"{'cov':>6}{'n':>9}{'单/天':>8}{'faiss':>10}{'orderbook':>12}{'combined':>12}")
     for cov in COVS:
         af, _ = acc_at_cov(ace_te, y_te, cov)
         ao, _ = acc_at_cov(ob_te, y_te, cov)
         ac, n = acc_at_cov(combined, y_te, cov)
-        print(f"{cov:>6.0%}{n:>9}{af:>10.4f}{ao:>12.4f}{ac:>12.4f}")
+        print(f"{cov:>6.0%}{n:>9}{n / days:>8.1f}{af:>10.4f}{ao:>12.4f}{ac:>12.4f}")
+    best1 = max(af, ao, ac) if COVS[0] == 0.01 else None
+    if best1 is not None:
+        print(f"[目标] 1% 覆盖（≈{n / days:.1f} 单/天）最高={best1:.4f}  "
+              f"短期 0.65 → {'达成' if best1 >= 0.65 else '未达成'}  长期 0.70 → "
+              f"{'达成' if best1 >= 0.70 else '未达成'}")
 
     agree = np.sign(ace_te) == np.sign(ob_te)
     pred_up = (ace_te > 0).astype(int)

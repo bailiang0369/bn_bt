@@ -1,4 +1,5 @@
 data/
+tmp/
 /kaggle_ds/
 __pycache__/
 *.pyc

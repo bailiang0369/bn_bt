@@ -98,9 +98,8 @@ def synthetic_klines(rows=300_000, seed=0):
 
 
 def add_target(df, horizon):
-    return (df.with_columns(
-        (pl.col("close").shift(-horizon) > pl.col("close")).cast(pl.Int8).alias("target")))
-    
+    return df.with_columns(
+        (pl.col("close").shift(-horizon) > pl.col("close")).cast(pl.Int8).alias("target"))
 
 def build_channels(df):
     """返回 (chans[C,N] float32, names, norm_mask[C] bool)。"""
@@ -115,15 +114,27 @@ def build_channels(df):
         if "taker_buy_volume" in df.columns:
             v = df["volume"].fill_null(0).to_numpy().astype(np.float64)
             tb = df["taker_buy_volume"].fill_null(0).to_numpy().astype(np.float64)
-            cvd = np.cumsum(2.0 * tb - v)
-            cvd -= cvd.mean()  # 中心化，避免大数在 float32 下的精度损失
-            scale = max(float(np.std(2.0 * tb - v)) * np.sqrt(len(cvd)), 1.0)
-            chans.append((cvd / scale).astype(np.float32))
+            # 固定常数缩放（不用全局 mean/std）：审计里"随机化 t 之后的数据，
+            # t 处输入须逐位不变"，任何全局统计都会破坏这条，也会被质疑成未来信息。
+            cvd = np.cumsum(2.0 * tb - v) / 1e6
+            chans.append(cvd.astype(np.float32))
             names.append("cvd")
             norm.append(True)
     chans = np.vstack([c.reshape(1, -1) for c in chans]).astype(np.float32)
     print(f"[channels] {names}  shape={chans.shape}  norm={norm}")
     return chans, names, np.array(norm, dtype=bool)
+
+
+def window_input(chans, mask, i, window):
+    """样本 i 的模型输入（numpy 版，与模型 forward 的 torch 归一化等价）。
+    只读取 [i-W+1, i]，用于审计"未来数据扰动后 t 处输入不变"。"""
+    x = chans[:, i - window + 1: i + 1].copy()
+    if mask.any():
+        sub = x[mask]
+        lo = sub.min(1, keepdims=True)
+        hi = sub.max(1, keepdims=True)
+        x[mask] = (sub - lo) / np.maximum(hi - lo, 1e-9)
+    return x
 
 
 def split_by_time(ct, test_days, val_days):
@@ -138,6 +149,26 @@ def split_by_time(ct, test_days, val_days):
     print(f"[split] train[0:{len(tr)}]<{_d(val_start)}  "
           f"val[{len(va)}] {_d(val_start)}~{_d(test_start)}  "
           f"test[{len(te)}] {_d(test_start)}~{_d(end)}")
+    return tr, va, te
+
+
+def split_with_purge(ct, horizon, window, test_days, val_days):
+    """按时间切分 + purge：样本标签窗口 [i, i+horizon] 不得跨入下一段。
+    否则训练集最后 horizon 个样本的标签落在 val 里（val 同理碰 test），
+    属于典型的时间序列边界泄漏。"""
+    tr, va, te = split_by_time(ct, test_days, val_days)
+    w = window - 1
+    tr, va, te = tr[tr >= w], va[va >= w], te[te >= w]
+    n_tr, n_va = len(tr), len(va)
+    if len(te):
+        test0 = int(te[0])
+        if len(va):
+            tr = tr[tr + horizon < int(va[0])]
+            va = va[va + horizon < test0]
+        else:
+            tr = tr[tr + horizon < test0]
+    print(f"[purge] 丢弃跨边界样本: train -{n_tr - len(tr)}  val -{n_va - len(va)}"
+          f"（horizon={horizon}，标签窗口不得跨段）")
     return tr, va, te
 
 
@@ -314,9 +345,7 @@ def main():
     y = df["target"].to_numpy().astype(np.int8)
     ct = df["close_time"].to_numpy()
 
-    tr, va, te = split_by_time(ct, a.test_days, a.val_days)
-    w = a.window - 1
-    tr, va, te = tr[tr >= w], va[va >= w], te[te >= w]
+    tr, va, te = split_with_purge(ct, a.horizon, a.window, a.test_days, a.val_days)
     tr = tr[::a.train_stride]
     print(f"[samples] train={len(tr)}（stride={a.train_stride}） val={len(va)} test={len(te)}")
 
