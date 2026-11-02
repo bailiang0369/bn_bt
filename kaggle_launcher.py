@@ -56,6 +56,16 @@ PROJECTS = {
         dataset_sources=["byh850515/btcusdt-orderbook-features", "byh850515/eth-btc-1m-2020"],
         env={"KAGGLE_HORIZON": "15"},
     ),
+    # 3min orderbook 变体矩阵：一次跑多组特征/权重/过滤/超参，快速定位有效方向
+    "matrix3": dict(
+        slug="byh850515/btcusdt-fusion-matrix-3min",
+        title="BTCUSDT Fusion Matrix 3min",
+        entry="orderbook.fusion_matrix",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"KAGGLE_HORIZON": "3",
+             "KAGGLE_FUSION_PRED": "/kaggle/working/matrix_pred_3m.parquet"},
+    ),
     # 15min 形态时序模型（1D CNN，CPU）：faiss 腿的替代/升级，产出 pred parquet 供组合器使用
     "morph15": dict(
         slug="byh850515/btcusdt-15min-morph-ts-1d-cnn-cpu",

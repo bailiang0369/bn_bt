@@ -163,7 +163,7 @@ def add_derived_features(df):
     return out
 
 
-def train_lgb_avg(X, y, tr, va, cols, seeds, rounds, weight=None):
+def train_lgb_avg(X, y, tr, va, cols, seeds, rounds, weight=None, extra=None):
     probs = np.zeros(len(y), dtype=np.float64)
     iters = []
     for sd in seeds:
@@ -171,6 +171,8 @@ def train_lgb_avg(X, y, tr, va, cols, seeds, rounds, weight=None):
                       feature_fraction=0.9, bagging_fraction=0.9, bagging_freq=1,
                       min_child_samples=100, verbose=-1,
                       seed=sd, bagging_seed=sd, feature_fraction_seed=sd, data_random_seed=sd)
+        if extra:
+            params.update(extra)
         w_tr = None if weight is None else weight[tr]
         w_va = None if weight is None else weight[va]
         ds = lgb.Dataset(X[tr], y[tr], feature_name=cols, weight=w_tr)
