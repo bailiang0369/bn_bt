@@ -75,7 +75,7 @@ if __name__ == "__main__":
 - `enable_internet=true`（clone 必需；morph 还需联网下载，orderbook 关联网只用挂载 dataset）。
 - 依赖统一从仓库根 `requirements.txt` 安装（`pip install -r requirements.txt`），不在 bootstrap 硬编码——faiss-cpu 等非 Kaggle 预装的库都列在其中，**改依赖只改这一处**。
 - 私有库：用 Kaggle Secrets 存 `GITHUB_TOKEN`，bootstrap 拼进 URL；当前仓库已 public，无需 token。
-- 入口由 launcher 写入同目录的 `entry.txt` 决定（默认 `morph.kaggle_entry`），bootstrap 不再硬编码各项目差异，所以**只有一个 bootstrap 文件**供所有项目复用。
+- **Kaggle `script` kernel 只上传 `code_file` 一个文件**，旁路文件（如 entry.txt）不会被传上去。所以入口由 launcher 在暂存时**注入到 bootstrap 副本首行**（`KAGGLE_ENTRY=<entry>` 环境变量），bootstrap 从环境变量读取——这样入口随唯一上传的 code_file 一起生效，且**只有一个 bootstrap 源文件**供所有项目复用。
 
 ## 4. 各项目如何接入
 | 项目 | ENTRY | slug（沿用） | 入口文件 |
@@ -91,7 +91,7 @@ if __name__ == "__main__":
 python kaggle_launcher.py --project morph --push --wait --logs --parse
 ```
 内部流程：
-1. 按 `--project` 在**临时目录**生成 kernel：`拷贝 kaggle_bootstrap.py` + `写 entry.txt`（入口模块）+ `写 kernel-metadata.json`（slug/title/dataset_sources/`enable_gpu:false`/`enable_internet` 由模板定）；
+1. 按 `--project` 在**临时目录**生成 kernel：`生成 kaggle_bootstrap.py`（首行注入 `KAGGLE_ENTRY=<入口>`）+ `写 kernel-metadata.json`（slug/title/dataset_sources/`enable_gpu:false`/`enable_internet` 由模板定）；
 2. `kaggle kernels push -p <tmp_dir>`；
 3. 轮询 `kaggle kernels status <slug>` 至 COMPLETE/ERROR（每 30s）；
 4. `kaggle kernels logs <slug>` 拉取；

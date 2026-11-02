@@ -49,9 +49,12 @@ PROJECTS = {
 def stage(project):
     cfg = PROJECTS[project]
     d = tempfile.mkdtemp(prefix=f"kaggle_{project}_")
-    shutil.copy(BOOTSTRAP, os.path.join(d, "kaggle_bootstrap.py"))
-    with open(os.path.join(d, "entry.txt"), "w", encoding="utf-8") as f:
-        f.write(cfg["entry"])
+    # Kaggle script kernel 只上传 code_file 一个文件，旁路文件(entry.txt)不会被传；
+    # 因此把入口直接注入 bootstrap 副本首行（环境变量），确保入口随 code_file 一起上传。
+    boot = open(BOOTSTRAP, encoding="utf-8").read()
+    inject = f'import os as _os; _os.environ["KAGGLE_ENTRY"] = {cfg["entry"]!r}\n'
+    with open(os.path.join(d, "kaggle_bootstrap.py"), "w", encoding="utf-8") as f:
+        f.write(inject + boot)
     meta = {
         "id": cfg["slug"],
         "title": cfg["title"],
