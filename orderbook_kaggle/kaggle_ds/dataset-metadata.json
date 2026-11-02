@@ -1,0 +1,10 @@
+{
+  "title": "BTCUSDT 1m Order Book + Cross-Market Features",
+  "id": "byh850515/btcusdt-orderbook-features",
+  "description": "BTCUSDT 1-minute merged features: order-book (futures/spot) L1/L2, cross-market, attack-defense features, plus stoch(60,2,2) and supertrend(10,3). 686880 rows x 151 cols. Ready for t+3 directional prediction.",
+  "licenses": [
+    {
+      "name": "CC0-1.0"
+    }
+  ]
+}

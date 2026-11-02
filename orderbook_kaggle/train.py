@@ -23,7 +23,7 @@ KAGGLE_PATH = f"/kaggle/input/{KAGGLE_DATASET_SLUG}/BTCUSDT.parquet"
 
 
 def load_data():
-    local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "BTCUSDT.parquet")
+    local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "BTCUSDT.parquet")
     if os.environ.get("KAGGLE_KERNEL_RUN_TYPE") and os.path.exists(KAGGLE_PATH):
         path = KAGGLE_PATH
     elif os.path.exists(local_path):

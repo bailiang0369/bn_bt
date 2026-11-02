@@ -1,9 +1,10 @@
 import numpy as np
 import polars as pl
 import lightgbm as lgb
+from pathlib import Path
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-df = pl.read_parquet("data/BTCUSDT.parquet").sort("close_time")
+df = pl.read_parquet(str(Path(__file__).resolve().parent.parent / "data" / "BTCUSDT.parquet")).sort("close_time")
 # 正确(未来)目标: close[T+3] > close[T]
 fut = df.select((pl.col("close_time") - 180000).alias("close_time"), pl.col("close").alias("_cf"))
 df = df.join(fut, on="close_time", how="left")
