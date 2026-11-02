@@ -23,13 +23,18 @@ KAGGLE_PATH = f"/kaggle/input/{KAGGLE_DATASET_SLUG}/BTCUSDT.parquet"
 
 
 def load_data():
+    import glob
     local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "BTCUSDT.parquet")
-    if os.environ.get("KAGGLE_KERNEL_RUN_TYPE") and os.path.exists(KAGGLE_PATH):
-        path = KAGGLE_PATH
+    hits = []
+    if os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):
+        # Kaggle 现挂载在 /kaggle/input/datasets/<owner>/<slug>/...，用 glob 兜住不同布局
+        hits = sorted(glob.glob("/kaggle/input/**/BTCUSDT.parquet", recursive=True))
+    if hits:
+        path = hits[0]
     elif os.path.exists(local_path):
         path = local_path
     else:
-        path = KAGGLE_PATH
+        raise FileNotFoundError("未找到 BTCUSDT.parquet（/kaggle/input 与本地 data/ 均无）")
     print(f"[load] 读取 {path}")
     return pl.read_parquet(path)
 
