@@ -64,7 +64,9 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=["byh850515/btcusdt-orderbook-features"],
         env={"KAGGLE_HORIZON": "3",
-             "KAGGLE_FUSION_PRED": "/kaggle/working/matrix_pred_3m.parquet"},
+             "KAGGLE_HORIZONS": "1,2,3,5",
+             "KAGGLE_VARIANTS": "base,minret2",
+             "KAGGLE_FUSION_PRED": "/kaggle/working/matrix_pred.parquet"},
     ),
     # 15min 形态时序模型（1D CNN，CPU）：faiss 腿的替代/升级，产出 pred parquet 供组合器使用
     "morph15": dict(
