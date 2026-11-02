@@ -43,6 +43,14 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=["byh850515/btcusdt-orderbook-features", "byh850515/eth-btc-1m-2020"],
     ),
+    "fusion15": dict(
+        slug="byh850515/btcusdt-orderbook-x-faiss-morph-fusion-a-b",
+        title="BTCUSDT OrderBook x faiss Morph Fusion A/B",
+        entry="orderbook.fusion_test",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features", "byh850515/eth-btc-1m-2020"],
+        env={"KAGGLE_HORIZON": "15"},
+    ),
 }
 
 
@@ -52,7 +60,10 @@ def stage(project):
     # Kaggle script kernel 只上传 code_file 一个文件，旁路文件(entry.txt)不会被传；
     # 因此把入口直接注入 bootstrap 副本首行（环境变量），确保入口随 code_file 一起上传。
     boot = open(BOOTSTRAP, encoding="utf-8").read()
-    inject = f'import os as _os; _os.environ["KAGGLE_ENTRY"] = {cfg["entry"]!r}\n'
+    lines = ["import os as _os", f'_os.environ["KAGGLE_ENTRY"] = {cfg["entry"]!r}']
+    for k, v in cfg.get("env", {}).items():
+        lines.append(f"_os.environ[{k!r}] = {v!r}")
+    inject = "\n".join(lines) + "\n"
     with open(os.path.join(d, "kaggle_bootstrap.py"), "w", encoding="utf-8") as f:
         f.write(inject + boot)
     meta = {

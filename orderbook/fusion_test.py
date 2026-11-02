@@ -116,7 +116,7 @@ def acc_at_cov(score, y, cov):
 
 def main():
     ap = argparse.ArgumentParser(description="orderbook x 形态 融合评估（正确版）")
-    ap.add_argument("--horizon", type=int, default=3)
+    ap.add_argument("--horizon", type=int, default=int(os.environ.get("KAGGLE_HORIZON", "3")))
     ap.add_argument("--rounds", type=int, default=1000)
     ap.add_argument("--rows", type=int, default=0, help="烟测：只取前 N 行，0=全量")
     ap.add_argument("--kline-file", default=None, help="烟测：指定 K 线 parquet（可指向 orderbook 自身）")
