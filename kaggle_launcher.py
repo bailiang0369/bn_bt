@@ -53,8 +53,8 @@ PROJECTS = {
     ),
     # 15min 形态时序模型（1D CNN，CPU）：faiss 腿的替代/升级，产出 pred parquet 供组合器使用
     "morph15": dict(
-        slug="byh850515/btcusdt-morph-ts-1dcnn-15min",
-        title="BTCUSDT 15min Morph TS (1D CNN, CPU)",
+        slug="byh850515/btcusdt-15min-morph-ts-1d-cnn-cpu",
+        title="BTCUSDT 15min Morph TS 1D CNN CPU",
         entry="morph.morph_ts",
         enable_internet=True,
         dataset_sources=["byh850515/eth-btc-1m-2020"],
