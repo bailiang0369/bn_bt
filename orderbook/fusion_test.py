@@ -122,7 +122,49 @@ def daily_topk_eval(score, y, day_id, mask, k):
     return np.array(accs, dtype=np.float64)
 
 
-def train_lgb_avg(X, y, tr, va, cols, seeds, rounds):
+DER_CORE = ["ob_f_obi_total", "ob_f_wmid_bps", "atk_f_imb", "atk_f_def_gap",
+            "ob_f_ret_1m_bps", "ob_f_spread_mean_15m", "ob_f_impact_imb", "ob_f_depth_bid_5m"]
+
+
+def _cross_stats(sub, pref):
+    m = pl.mean_horizontal([pl.col(c) for c in sub])
+    var = pl.lit(0.0)
+    for c in sub:
+        var = var + (pl.col(c) - m) ** 2
+    return [m.alias(f"der_{pref}mean"), (var / len(sub)).sqrt().alias(f"der_{pref}std")]
+
+
+def add_derived_features(df):
+    """派生特征：只用当行/过去行（rolling 不含未来），不引入泄漏。"""
+    cols = df.columns
+    exprs, used = [], []
+    for pref in ("ob_f_", "ob_s_", "atk_f_", "atk_s_"):
+        sub = [c for c in cols if c.startswith(pref)]
+        if len(sub) >= 3:
+            e = _cross_stats(sub, pref)
+            exprs += e
+            used += [x.meta.output_name() for x in e]
+    for c in [x for x in DER_CORE if x in cols]:
+        for w in (5, 15):
+            exprs.append(pl.col(c).rolling_mean(w).alias(f"der_{c}_m{w}"))
+            exprs.append(pl.col(c).rolling_std(w).alias(f"der_{c}_s{w}"))
+            used += [f"der_{c}_m{w}", f"der_{c}_s{w}"]
+    if {"close", "open"} <= set(cols):
+        exprs.append(((pl.col("close") - pl.col("open")) / pl.col("open")).alias("der_body"))
+        used.append("der_body")
+    if {"high", "low", "close"} <= set(cols):
+        exprs.append(((pl.col("high") - pl.col("low")) / pl.col("close")).alias("der_range"))
+        used.append("der_range")
+    hour = (pl.col("close_time") % 86_400_000) / 3_600_000.0
+    exprs += [(hour * 2 * np.pi / 24).sin().alias("der_hour_sin"),
+              (hour * 2 * np.pi / 24).cos().alias("der_hour_cos")]
+    used += ["der_hour_sin", "der_hour_cos"]
+    out = df.with_columns(exprs)
+    print(f"[derived] +{len(used)} 列: {used}")
+    return out
+
+
+def train_lgb_avg(X, y, tr, va, cols, seeds, rounds, weight=None):
     probs = np.zeros(len(y), dtype=np.float64)
     iters = []
     for sd in seeds:
@@ -130,8 +172,10 @@ def train_lgb_avg(X, y, tr, va, cols, seeds, rounds):
                       feature_fraction=0.9, bagging_fraction=0.9, bagging_freq=1,
                       min_child_samples=100, verbose=-1,
                       seed=sd, bagging_seed=sd, feature_fraction_seed=sd, data_random_seed=sd)
-        ds = lgb.Dataset(X[tr], y[tr], feature_name=cols)
-        vs = lgb.Dataset(X[va], y[va], reference=ds)
+        w_tr = None if weight is None else weight[tr]
+        w_va = None if weight is None else weight[va]
+        ds = lgb.Dataset(X[tr], y[tr], feature_name=cols, weight=w_tr)
+        vs = lgb.Dataset(X[va], y[va], reference=ds, weight=w_va)
         m = lgb.train(params, ds, num_boost_round=rounds, valid_sets=[ds, vs],
                       callbacks=[lgb.early_stopping(50, verbose=False)])
         probs += m.predict(X, num_iteration=m.best_iteration)
@@ -151,6 +195,12 @@ def main():
                     help="输出逐行 pred parquet（val+test），供离线阈值/组合分析")
     ap.add_argument("--daily-k", type=int, default=15,
                     help="按天取 top-k 单（真实交易口径，默认 15 单/天）")
+    ap.add_argument("--derived", action="store_true",
+                    default=bool(int(os.environ.get("KAGGLE_FUSION_DERIVED", "0"))),
+                    help="加派生特征（跨列聚合/滚动/时间）")
+    ap.add_argument("--decay-days", type=float,
+                    default=float(os.environ.get("KAGGLE_FUSION_DECAY", "0")),
+                    help="训练样本时间衰减半衰期（天），0=关闭")
     a = ap.parse_args()
 
     lgb_seeds = [int(x) for x in a.lgb_seeds.split(",") if x.strip()]
@@ -165,6 +215,8 @@ def main():
     print(f"[seeds] lgb={lgb_seeds}  faiss={faiss_seeds}")
 
     ob = add_target(ob, a.horizon).drop_nulls()
+    if a.derived:
+        ob = add_derived_features(ob)
     L = len(ob)
     k1, k2 = int(L * 0.64), int(L * 0.80)
     # purge：训练/验证末尾 h 个样本的标签是 t+h 的价格，会跨进下一段
@@ -217,7 +269,13 @@ def main():
     base_cols = [c for c in ob.columns if c not in ("target", "close_time")]
     X = ob.select(base_cols).to_numpy().astype(np.float32)
     y = target
-    p_all, iters = train_lgb_avg(X, y, tr, va, base_cols, lgb_seeds, a.rounds)
+    weight = None
+    if a.decay_days > 0:
+        age_days = (T_end - ob_ct) / 86_400_000.0
+        weight = np.power(0.5, np.clip(age_days, 0, None) / a.decay_days)
+        print(f"[weight] 时间衰减半衰期={a.decay_days:g}天 → train 权重 "
+              f"{weight[tr].min():.3f}~{weight[tr].max():.3f}")
+    p_all, iters = train_lgb_avg(X, y, tr, va, base_cols, lgb_seeds, a.rounds, weight)
 
     def mean_std(ref):
         return float(ref.mean()), float(ref.std() + 1e-9)
@@ -244,11 +302,11 @@ def main():
     best_w, best_val = 1.0, -1.0
     for w in WEIGHTS:
         s = z_ob_va + w * z_ace_va
-        a = daily_topk_eval(s, y_va, dv, mv, a.daily_k).mean()
+        dacc = float(daily_topk_eval(s, y_va, dv, mv, a.daily_k).mean())
         g = float(np.mean([acc_at_cov(s, y_va, c)[0] for c in (0.01, 0.02, 0.05)]))
-        print(f"  [val] w={w:<5.2f} 按天top{a.daily_k}={a:.4f} 全局1/2/5%={g:.4f}")
-        if a > best_val:
-            best_val, best_w = a, w
+        print(f"  [val] w={w:<5.2f} 按天top{a.daily_k}={dacc:.4f} 全局1/2/5%={g:.4f}")
+        if dacc > best_val:
+            best_val, best_w = dacc, w
     print(f"[val] 选出 w={best_w}（按天 top{a.daily_k} 日均={best_val:.4f}，完整天={int(mv.sum())}）")
 
     z_ob_te = zc((p_all[te] - 0.5), m_ob, s_ob)
