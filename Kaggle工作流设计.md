@@ -104,7 +104,7 @@ python kaggle_launcher.py --project morph --push --wait --logs --parse
 
 ## 7. 前提与风险
 - **凭证**：本环境可正常 push（已验证）。若以后仓库设为私有，Kaggle 侧需 Secret 注入 `GITHUB_TOKEN` 供 kernel clone。
-- **enable_internet**：morph 需要（clone + 下载）；orderbook 关联网只用挂载 dataset 即可。
+- **enable_internet**：**所有项目都必须为 true**——因为 bootstrap 第一步要 `git clone` GitHub；orderbook/fusion 除 clone 外不需要额外联网（数据仍走挂载 dataset）。
 - **首次 clone 开销**：每次 kernel 启动多几十秒拉仓库，可接受。
 - **数据 dataset 不变**：eth-btc-1m-2020 / btcusdt-orderbook-features 仍作 input 挂载；项目代码仓库与数据 dataset 分离。
 - **.gitignore**：排除 `data/`、`__pycache__/`、`.codebuddy/`，不把大 parquet 推上 GitHub。

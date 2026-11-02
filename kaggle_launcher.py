@@ -33,14 +33,14 @@ PROJECTS = {
         slug="byh850515/btc-orderbook-lgbm",
         title="BTCUSDT OrderBook Features - LightGBM t+3",
         entry="orderbook.train",
-        enable_internet=False,
+        enable_internet=True,
         dataset_sources=["byh850515/btcusdt-orderbook-features"],
     ),
     "fusion": dict(
         slug="byh850515/btcusdt-orderbook-x-faiss-morph-fusion-a-b",
         title="BTCUSDT OrderBook x faiss Morph Fusion A/B",
         entry="orderbook.fusion_test",
-        enable_internet=False,
+        enable_internet=True,
         dataset_sources=["byh850515/btcusdt-orderbook-features"],
     ),
 }
