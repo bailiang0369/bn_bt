@@ -78,29 +78,15 @@ def cluster_ids_kline(kline, t_end_idx, arr, w, r, nc, is_indicator, seed):
     return ids
 
 
-def edge_loo(ob_ids, target, k1):
-    L = len(ob_ids)
-    edge = np.zeros(L, dtype=np.float64)
-    cnt, ssum = {}, {}
-    for i in range(k1):
-        c = int(ob_ids[i])
-        if c < 0:
-            continue
-        cnt[c] = cnt.get(c, 0) + 1
-        ssum[c] = ssum.get(c, 0.0) + float(target[i])
-    for i in range(L):
-        c = int(ob_ids[i])
-        if c < 0:
-            continue
-        if i < k1:
-            n = cnt.get(c, 0) - 1
-            if n > 0:
-                edge[i] = (ssum[c] - float(target[i])) / n - 0.5
-        else:
-            n = cnt.get(c, 0)
-            if n > 0:
-                edge[i] = ssum[c] / n - 0.5
-    return edge
+def kline_edge_lut(ids, kl_t, t_end_idx, nc):
+    """在【K线 2020→T_end】上算每个簇的 edge = mean(target)-0.5，返回查表数组。"""
+    valid = (ids >= 0) & (kl_t >= 0)
+    valid[t_end_idx + 1:] = False
+    codes = ids[valid].astype(np.int64)
+    tv = kl_t[valid].astype(np.float64)
+    sums = np.bincount(codes, weights=tv, minlength=nc)
+    counts = np.bincount(codes, minlength=nc)
+    return np.where(counts > 0, sums / np.maximum(counts, 1) - 0.5, 0.0).astype(np.float32)
 
 
 def acc_at_cov(score, y, cov):
@@ -171,6 +157,12 @@ def main():
     target = ob["target"].to_numpy().astype(int)
     close = kl["close"].to_numpy().astype(np.float32)
     st = stoch(kl, 29)
+    # faiss 的 edge 也必须在【K线 2020→T_end】上算（K线自身 t+15 target），与 orderbook 目标无关
+    kl_t = add_target(kl, a.horizon)["target"].fill_null(-1).to_numpy().astype(np.int32)
+    ob_close = ob["close"].to_numpy()
+    kl_close_aligned = kl["close"].to_numpy()[nearest]
+    cc = np.corrcoef(ob_close[valid], kl_close_aligned[valid])[0, 1]
+    print(f"[align] orderbook vs kline close 相关系数={cc:.6f}")
 
     p_edges, s_edges = [], []
     for ch, arr, ind, bucket in [("p", close, False, p_edges), ("s", st, True, s_edges)]:
@@ -179,8 +171,12 @@ def main():
             for sd in faiss_seeds:
                 ids = cluster_ids_kline(kl, t_end_idx, arr, cfg["window"], cfg["repeat"],
                                         cfg["n_clusters"], ind, sd)
+                lut = kline_edge_lut(ids, kl_t, t_end_idx, cfg["n_clusters"])
                 ob_ids = np.where(valid, ids[nearest], -1)
-                acc += edge_loo(ob_ids, target, k1)
+                ob_edge = np.zeros(L, dtype=np.float64)
+                m = ob_ids >= 0
+                ob_edge[m] = lut[ob_ids[m]]
+                acc += ob_edge
             bucket.append((acc / len(faiss_seeds)).astype(np.float32))
     ace_p = np.sum(np.vstack(p_edges), axis=0).astype(np.float32)
     ace_s = np.sum(np.vstack(s_edges), axis=0).astype(np.float32)
