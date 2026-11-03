@@ -10,6 +10,9 @@
     python -m orderbook.eval_pred --pred tmp/fusionkl/fusion_kl_pred.parquet
     python -m orderbook.eval_pred --pred xxx.parquet --sweep 10,15,20,30 \
         --cols "lr=0.130*z_ob+0.029*z_kl"
+    # 滚动监控（模拟实盘：用过去 W 天已实现结果决定当天是否下单）
+    python -m orderbook.eval_pred --pred xxx.parquet --rm \
+        --rm-window-days 45 --rm-thresholds "0.64,0.62,0.60"
 """
 import sys
 import argparse
@@ -49,6 +52,51 @@ def day_stats(score, y, d, k):
     return len(u), c.min(), c.max(), float(accs.mean()), float(np.median(accs))
 
 
+def rolling_monitor(ct, y, d, s, per_day, window_days, thresholds):
+    """因果滚动监控：只用 t 之前 window_days 天的已实现结果，决定第 t 天是否交易。
+
+    返回 (baseline_acc, trailing, days, results)。trailing[i] = 第 i 天结束时的滚动准确率
+    （用 days[i-W:i] 这段，不含第 i 天，严格因果），用于"当天要不要下单"的决策。
+    results[thr] = (仅在 trailing>=thr 的天交易时的全局 top-K 准确率, 交易天数, 总天数)。
+    """
+    days = np.unique(d)
+    n_days = len(days)
+    day_idx = {int(u): np.where(d == u)[0] for u in days}
+
+    base = topk_acc(s, y, per_day * n_days)
+
+    trailing = np.full(n_days, np.nan)
+    for i in range(n_days):
+        lo = max(0, i - window_days)
+        if lo >= i:
+            continue
+        idx = np.concatenate([day_idx[int(u)] for u in days[lo:i]])
+        nw = i - lo
+        if len(idx) >= 10:
+            trailing[i] = topk_acc(s[idx], y[idx], per_day * nw)
+
+    results = {}
+    rng = np.random.default_rng(0)
+    for thr in thresholds:
+        # 冷启动（前 W 天没有历史）默认交易，避免开局长期空仓
+        trade = np.array([np.isnan(trailing[i]) or trailing[i] >= thr
+                          for i in range(n_days)])
+        if not trade.any():
+            results[thr] = (float("nan"), 0, n_days, float("nan"))
+            continue
+        nd = int(trade.sum())
+        idx = np.concatenate([day_idx[int(u)] for u in days[trade]])
+        acc = topk_acc(s[idx], y[idx], per_day * nd)
+        # 随机对照：随机保留同样天数（20 次平均），剥离"K 变小→top-K 更极端"的机械效应
+        ra = []
+        for _ in range(20):
+            pick = rng.choice(n_days, nd, replace=False)
+            ridx = np.concatenate([day_idx[int(u)] for u in days[pick]])
+            ra.append(topk_acc(s[ridx], y[ridx], per_day * nd))
+        results[thr] = (acc, nd, n_days, float(np.mean(ra)))
+    return base, trailing, days, results
+
+
 def main():
     ap = argparse.ArgumentParser(description="全局 top-K（测试集总日均）口径评估")
     ap.add_argument("--pred", required=True, help="逐行预测 parquet（需含 close_time/target + 分数列）")
@@ -57,6 +105,10 @@ def main():
     ap.add_argument("--cols", default="", help="附加分数列，逗号分隔 name=expr，可用已有列名")
     ap.add_argument("--hour", default="", help="UTC 时段过滤，如 18-24（支持跨零点 22-6）")
     ap.add_argument("--znorm", default="", help="分数归一化：roll<W>=过去 W 根滚动 z（因果）；day=按天 z（含同日未来，仅诊断）")
+    ap.add_argument("--rm", action="store_true", help="滚动监控模式：用过去 W 天已实现结果决定当天是否交易")
+    ap.add_argument("--rm-score", default="z_ob+0.2*z_kl", help="监控/交易的打分表达式")
+    ap.add_argument("--rm-window-days", type=int, default=45, help="滚动回看窗口（天）")
+    ap.add_argument("--rm-thresholds", default="0.62,0.60,0.58", help="止损阈值（滚动准确率）")
     a = ap.parse_args()
 
     df = pl.read_parquet(a.pred).sort("close_time")
@@ -74,9 +126,9 @@ def main():
         if np.issubdtype(v.dtype, np.number):
             scores[c] = v.astype(np.float64)
 
+    env = dict(scores)
+    env["np"] = np
     if a.cols:
-        env = dict(scores)
-        env["np"] = np
         for part in a.cols.split(","):
             part = part.strip()
             if not part:
@@ -118,6 +170,27 @@ def main():
     print(f"[data] {a.pred}")
     print(f"[data] n={n} 天数={n_days} 基准={y.mean():.4f}  "
           f"日均{a.per_day}单 → 全局 K={a.per_day * n_days}（覆盖 {a.per_day * n_days / n:.4f}）")
+
+    # ---------- 滚动监控（因果止损）----------
+    if a.rm:
+        s = np.asarray(eval(a.rm_score, {"__builtins__": {}}, env), dtype=np.float64).ravel()
+        thr = sorted({float(x) for x in a.rm_thresholds.split(",") if x.strip()})
+        base, trailing, days, res = rolling_monitor(ct, y, d, s, a.per_day, a.rm_window_days, thr)
+        print(f"\n[滚动监控] 打分={a.rm_score}  窗口={a.rm_window_days}天  基线全局topK={base:.4f}")
+        print(f"{'止损阈值':<10}{'交易天数':>9}{'覆盖率':>9}{'停单天数':>9}{'交易段准确率':>12}{'随机对照':>10}{'净增益':>9}")
+        for t in thr:
+            acc, nd, tot, ra = res[t]
+            g = acc - ra if not (np.isnan(acc) or np.isnan(ra)) else float("nan")
+            print(f"{t:<10.3f}{nd:>9}{nd / tot:>9.2f}{tot - nd:>9}"
+                  f"{acc:>12.4f}{ra:>10.4f}{g:>9.4f}")
+        td = trailing[~np.isnan(trailing)]
+        if len(td):
+            print(f"[滚动曲线] 有效点={len(td)}  均={td.mean():.4f}  中位={np.median(td):.4f}  "
+                  f"p10={np.percentile(td, 10):.4f}  最差={td.min():.4f}")
+            # 采样打印曲线（每 5 个点）
+            step = max(1, len(td) // 12)
+            print("[滚动曲线采样] " + "  ".join(f"{v:.3f}" for v in td[::step]))
+        return
 
     print(f"\n{'打分':<12}{'AUC':>9}{'全局topK':>10}{'覆盖天数':>9}{'单/天min':>10}{'单/天max':>10}{'该天日均':>10}")
     rows = []
