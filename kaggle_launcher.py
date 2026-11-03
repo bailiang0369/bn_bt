@@ -125,7 +125,7 @@ PROJECTS = {
     ),
     # 两腿融合：K 线 5.5 年（63 量价特征）× 盘口 15 个月（150 微观特征）——两条腿用**不同的训练集**
     "fusionkl": dict(
-        slug="byh850515/btcusdt-fusion-kline-orderbook",
+        slug="byh850515/btcusdt-fusion-kline-x-orderbook",
         title="BTCUSDT Fusion Kline x OrderBook",
         entry="orderbook.fusion_kl",
         enable_internet=True,
