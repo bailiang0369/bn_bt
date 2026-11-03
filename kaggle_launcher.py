@@ -70,6 +70,16 @@ PROJECTS = {
              "KAGGLE_SEEDS": "42,43,44,45,46,47,48,49,50,51",
              "KAGGLE_FUSION_PRED": "/kaggle/working/matrix_pred.parquet"},
     ),
+    # 纯 K 线 3min 模型：5.5 年数据（2020+）+ 60 余个 K 线特征
+    "kline3": dict(
+        slug="byh850515/btcusdt-kline-feats-3min",
+        title="BTCUSDT Kline Feats 3min",
+        entry="morph.kline_lgb",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"KAGGLE_HORIZON": "3",
+             "KAGGLE_TEST_OFFSETS": "0"},
+    ),
     # 3min 攻坚 4：固定轮数 vs 早停（修集成不稳定）
     "h3fixed": dict(
         slug="byh850515/btcusdt-h3-fixed",
