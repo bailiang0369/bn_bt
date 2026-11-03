@@ -123,6 +123,18 @@ PROJECTS = {
         env={"KAGGLE_HORIZONS": "1,2,3",
              "KAGGLE_FUSION_PRED": "/kaggle/working/blend_pred.parquet"},
     ),
+    # 两腿融合：K 线 5.5 年（63 量价特征）× 盘口 15 个月（150 微观特征）——两条腿用**不同的训练集**
+    "fusionkl": dict(
+        slug="byh850515/btcusdt-fusion-kline-orderbook",
+        title="BTCUSDT Fusion Kline x OrderBook",
+        entry="orderbook.fusion_kl",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"KAGGLE_HORIZON": "3",
+             "KAGGLE_KSEEDS": "42,43,44",
+             "KAGGLE_OSEEDS": "42,43,44,45,46",
+             "KAGGLE_FUSION_PRED": "/kaggle/working/fusion_kl_pred.parquet"},
+    ),
     # 15min 形态时序模型（1D CNN，CPU）：faiss 腿的替代/升级，产出 pred parquet 供组合器使用
     "morph15": dict(
         slug="byh850515/btcusdt-15min-morph-ts-1d-cnn-cpu",
