@@ -109,9 +109,19 @@ def complete_days(day_id, min_bars=1200):
     return np.isin(day_id, u[c >= min_bars])
 
 
+def global_topk_eval(score, y, day_id, k_per_day):
+    """【主口径】测试集总日均 k_per_day 单：全段按 |score| 排序取前 K = k_per_day × 天数。
+    信号多的天多下单、没信号的天不下单（长期平均达标即可），这是用户要的口径。
+    对照口径 daily_topk_eval 会强行给弱信号天凑单，系统性低估。"""
+    n_days = len(np.unique(day_id))
+    k = min(int(k_per_day) * n_days, len(y))
+    idx = np.argsort(-np.abs(score))[:k]
+    return float(((score[idx] > 0).astype(int) == y[idx]).mean())
+
+
 def daily_topk_eval(score, y, day_id, mask, k):
-    """真实交易口径：每天取 |score| 最大的 k 个信号，算每天的准确率。
-    用户目标『日均 15 单』= k=15（1 天 1440 根 1m bar 的 1.04%）。"""
+    """【对照口径】每天必须凑满 k 单，算每天准确率的均值。
+    会把弱信号天的噪声单强行计入，因此低于全局口径；仅用于看"强制出单"的代价。"""
     s, yy, d = score[mask], y[mask], day_id[mask]
     accs = []
     for u in np.unique(d):

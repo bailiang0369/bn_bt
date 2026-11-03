@@ -133,6 +133,8 @@ PROJECTS = {
         env={"KAGGLE_HORIZON": "3",
              "KAGGLE_KSEEDS": "42,43,44",
              "KAGGLE_OSEEDS": "42,43,44,45,46",
+             "KAGGLE_OFFSETS": "0,60,120",
+             "KAGGLE_W_FIXED": "0.2",
              "KAGGLE_FUSION_PRED": "/kaggle/working/fusion_kl_pred.parquet"},
     ),
     # 15min 形态时序模型（1D CNN，CPU）：faiss 腿的替代/升级，产出 pred parquet 供组合器使用
