@@ -147,6 +147,14 @@ PROJECTS = {
         env={"KAGGLE_HORIZON": "15",
              "KAGGLE_MORPH_TS_OUT": "/kaggle/working/morph_ts_15m.parquet"},
     ),
+    # 数据生产：2020+ 全量 um 1m K 线（含 volume/taker），产物注册为 Kaggle Dataset
+    "klineds": dict(
+        slug="byh850515/btcusdt-1m-full-2020-dataset-maker",
+        title="BTCUSDT 1m Full 2020 Dataset Maker",
+        entry="morph.make_full_dataset",
+        enable_internet=True,
+        dataset_sources=[],
+    ),
     # 纯 K 线提升对照 v0-v4（1m/3m 重采样/符号累加/形态子集/堆叠），数据直接取 dataset
     "boost": dict(
         slug="byh850515/btcusdt-kline-boost-v0-v4",
