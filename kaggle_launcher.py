@@ -161,7 +161,7 @@ PROJECTS = {
         title="BTCUSDT Kline Boost v0-v4",
         entry="morph.kline_boost",
         enable_internet=True,
-        dataset_sources=["byh850515/eth-btc-1m-2020", "byh850515/crypto-eth-btc-data"],
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
         env={"SEEDS": "42,43", "ROUNDS": "60", "ONLY": ""},
     ),
 }
