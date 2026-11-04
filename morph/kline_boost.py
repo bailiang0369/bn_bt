@@ -70,17 +70,45 @@ def log(m):
 
 
 def load_klines(start=(2020, 1), end=(2026, 10), symbol="BTCUSDT"):
-    """优先用 Kaggle dataset / 本地已有 parquet；全部缺失才联网下载。"""
+    """直接使用 Kaggle dataset / 本地已有 parquet：优先含量能的，其次纯 OHLC。"""
     cands = [CACHE, os.path.join(ROOT, "data", "raw", "btcusdt_1m_full.parquet")]
     for n in KLINE_NAMES:
         cands += sorted(glob.glob(f"/kaggle/input/**/{n}", recursive=True))
+    cands += sorted(glob.glob("/kaggle/input/**/*.parquet", recursive=True))
+    need = ["close_time", "open", "high", "low", "close", "volume", "taker_buy_volume"]
+    full, ohlc, seen = None, None, set()
     for p in cands:
-        if os.path.exists(p):
-            d = pl.read_parquet(p).sort("close_time")
-            log(f"[data] {p} rows={d.height} cols={d.columns}")
-            if "volume" not in d.columns:
-                log("[data] 警告：无 volume/taker_buy_volume，量能特征将缺失")
-            return d
+        if p in seen or not os.path.exists(p):
+            continue
+        seen.add(p)
+        try:
+            lf = pl.scan_parquet(p)
+            cols = set(lf.collect_schema().names())
+            if not {"close_time", "open", "high", "low", "close"} <= cols:
+                continue
+            g = lf.select(pl.len().alias("n"),
+                          pl.col("close_time").min().alias("a"),
+                          pl.col("close_time").max().alias("b")).collect()
+            n, a, b = int(g["n"][0]), int(g["a"][0]), int(g["b"][0])
+        except Exception as e:
+            log(f"[data] 跳过 {p}: {e}")
+            continue
+        sel = [c for c in need if c in cols]
+        log(f"[data] 候选 {p} rows={n} {a}~{b} vol={'volume' in cols}")
+        if n < 100_000 or b < TEST_START + 7 * 86_400_000:
+            continue
+        if "volume" in cols and (full is None or n > full[1]):
+            full = (p, n, sel)
+        elif ohlc is None or n > ohlc[1]:
+            ohlc = (p, n, sel)
+    pick = full or ohlc
+    if pick is not None:
+        p, n, sel = pick
+        d = pl.read_parquet(p, columns=sel).sort("close_time")
+        log(f"[data] 选用 {p} rows={d.height} 量能={'volume' in sel}")
+        if "volume" not in sel:
+            log("[data] 警告：全部候选都无量能，量能特征缺失（v0 特征数会低于 63）")
+        return d
     log("[data] 未找到现成 parquet，开始下载 Binance Vision 月度 zip")
     base = "https://data.binance.vision/data/futures/um/monthly/klines"
     frames, y, m = [], start[0], start[1]
@@ -153,12 +181,11 @@ def roll_z(x, win):
 
 def resample_3m(df):
     t0 = int(df["close_time"][0])
+    aggs = [pl.col("close_time").last(), pl.col("open").first(), pl.col("high").max(),
+            pl.col("low").min(), pl.col("close").last()]
+    aggs += [pl.col(c).sum() for c in ("volume", "taker_buy_volume") if c in df.columns]
     return (df.with_columns(((pl.col("close_time") - t0) // 180_000).alias("_g"))
-            .group_by("_g")
-            .agg(pl.col("close_time").last(), pl.col("open").first(), pl.col("high").max(),
-                 pl.col("low").min(), pl.col("close").last(),
-                 pl.col("volume").sum(), pl.col("taker_buy_volume").sum())
-            .sort("close_time"))
+            .group_by("_g").agg(aggs).sort("close_time"))
 
 
 def make_target(d, h):
@@ -225,7 +252,8 @@ def main():
     want = (lambda t: (not only) or t in only)
 
     raw = load_klines().filter(pl.col("close_time") <= OB_END)
-    log(f"[1m] rows={raw.height} {int(raw['close_time'][0])}~{int(raw['close_time'][-1])}")
+    log(f"[1m] rows={raw.height} {int(raw['close_time'][0])}~{int(raw['close_time'][-1])} "
+        f"量能={'volume' in raw.columns}")
     raw3 = resample_3m(raw)
     log(f"[3m] rows={raw3.height}")
 
