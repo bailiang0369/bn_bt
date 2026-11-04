@@ -82,7 +82,7 @@ def main():
         log(f"[s8] 63 特征 × {len(seeds)} seed")
         acc = np.zeros(n3)
         for sd in seeds:
-            acc += train_one(X, y, tr, cols, sd, rounds)
+            acc += train_one(X, y, tr, cols, sd, rounds)[:n3]
         store["s8"] = acc / len(seeds)
         report("s8", store["s8"], len(cols))
 
@@ -95,7 +95,7 @@ def main():
             log(f"[{tag}] 软加权 q={q}bps 平均权重={w[tr].mean():.3f}")
             acc = np.zeros(n3)
             for sd in seeds[:2]:
-                acc += train_one(X, y, tr, cols, sd, rounds, w=w)
+                acc += train_one(X, y, tr, cols, sd, rounds, w=w)[:n3]
             store[tag] = acc / 2
             report(tag, store[tag], len(cols))
 
@@ -129,7 +129,7 @@ def main():
                 dict(num_leaves=127, feature_fraction=0.9)]
         for c in cfgs:
             for sd in seeds[:2]:
-                acc += train_one(X, y, tr, cols, sd, rounds, over=c)
+                acc += train_one(X, y, tr, cols, sd, rounds, over=c)[:n3]
         store["div"] = acc / (2 * len(cfgs))
         report("div", store["div"], len(cols))
         if "s8" in store:
