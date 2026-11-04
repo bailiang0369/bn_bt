@@ -155,6 +155,15 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=[],
     ),
+    # 纯 K 线第二轮：噪声基线（seed/窗口 sd）+ 标签净化 + 形态×符号
+    "boost2": dict(
+        slug="byh850515/btcusdt-kline-boost2-noise-label",
+        title="BTCUSDT Kline Boost2 Noise Label",
+        entry="morph.kline_boost2",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "60", "ONLY": ""},
+    ),
     # 纯 K 线提升对照 v0-v4（1m/3m 重采样/符号累加/形态子集/堆叠），数据直接取 dataset
     "boost": dict(
         slug="byh850515/btcusdt-kline-boost-v0-v4",
