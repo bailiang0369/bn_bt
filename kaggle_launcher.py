@@ -147,6 +147,15 @@ PROJECTS = {
         env={"KAGGLE_HORIZON": "15",
              "KAGGLE_MORPH_TS_OUT": "/kaggle/working/morph_ts_15m.parquet"},
     ),
+    # 纯 K 线提升对照 v0-v4（1m/3m 重采样/符号累加/形态子集/堆叠），数据直接取 dataset
+    "boost": dict(
+        slug="byh850515/btcusdt-kline-boost-v0v4",
+        title="BTCUSDT Kline Boost v0-v4",
+        entry="morph.kline_boost",
+        enable_internet=True,
+        dataset_sources=["byh850515/eth-btc-1m-2020"],
+        env={"SEEDS": "42,43", "ROUNDS": "60", "ONLY": ""},
+    ),
 }
 
 
