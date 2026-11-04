@@ -155,6 +155,15 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=[],
     ),
+    # 纯 K 线第三轮：8seed / 软加权 / h1-2-3 融合 / 多样性 bagging
+    "boost3": dict(
+        slug="byh850515/btcusdt-kline-boost3-ens",
+        title="BTCUSDT Kline Boost3 Ens",
+        entry="morph.kline_boost3",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43,44,45,46,47,48,49", "ROUNDS": "60", "ONLY": ""},
+    ),
     # 纯 K 线第二轮：噪声基线（seed/窗口 sd）+ 标签净化 + 形态×符号
     "boost2": dict(
         slug="byh850515/btcusdt-kline-boost2-noise-label",
