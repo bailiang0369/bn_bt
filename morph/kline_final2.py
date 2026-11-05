@@ -117,18 +117,24 @@ def main():
     full[pr] = base_z
     evaluate("lgb5s", full, ct, y3, va, rows)
 
-    log(f"[cnn9] 窗口={window} epoch={epochs} stride={stride} 9 通道（无总成交量）")
-    chans, names, norm = build_chans9(ft.head(nmax))
+    nch = int(os.environ.get("CNN_CHANS", "9"))   # 7 = 第十一轮定稿通道（无 CVD 斜率）
+    tagc = f"cnn{nch}"
+    log(f"[{tagc}] 窗口={window} epoch={epochs} stride={stride} {nch} 通道（无总成交量）")
+    if nch == 7:
+        from morph.kline_novol import build_chans7
+        chans, names, norm = build_chans7(ft.head(nmax))
+    else:
+        chans, names, norm = build_chans9(ft.head(nmax))
     pc, cva, cte = cnn_train(chans, norm, y3, ct, window, cnn_seeds, epochs, stride)
     m = ~np.isnan(pc)
     pcf = np.where(m, pc, np.nanmedian(pc[m]))
     fullc = np.zeros(nmax)
     fullc[pr] = zscore(pcf[pr], pcf[cva])
-    evaluate("cnn9", fullc, ct, y3, va, rows)
+    evaluate(tagc, fullc, ct, y3, va, rows)
 
     for w in (0.10, 0.15, 0.20, 0.25):
         full[pr] = base_z + w * fullc[pr]
-        evaluate(f"lgb5s+{w}cnn9", full, ct, y3, va, rows)
+        evaluate(f"lgb5s+{w}{tagc}", full, ct, y3, va, rows)
 
     log(f"\n{'变体':<16}{'static':>9}{'AUC':>8}{'按天':>8}{'窗口4':>8}{'4段sd':>8}")
     for k, r in rows.items():

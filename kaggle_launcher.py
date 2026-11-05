@@ -165,8 +165,20 @@ PROJECTS = {
         dataset_sources=["byh850515/btcusdt-1m-full-2020"],
         env={"SEEDS": "42,43,44,45,46", "ROUNDS": "60", "USE_VP": "0",
              "VP_WINS": "240,960,1440", "VP_TICK": "2.0", "VP_ANCHOR": "10",
-             "CNN_SEEDS": "42,43", "CNN_EPOCHS": "10", "CNN_WINDOW": "120",
-             "CNN_STRIDE": "16"},
+             "CNN_CHANS": "9", "CNN_SEEDS": "42,43", "CNN_EPOCHS": "10",
+             "CNN_WINDOW": "120", "CNN_STRIDE": "16"},
+    ),
+    # 纯 K 线第十四轮：只把 seed 加到 5，CNN 保持第十一轮的 7 通道/60 窗口/5 epoch，
+    # 隔离"seed 增益"（第十三轮 CNN9 与 CNN7 打平，混在一起看不清）
+    "boost14": dict(
+        slug="byh850515/btcusdt-kline-final2-cnn7",
+        title="BTCUSDT Kline Final2 CNN7",
+        entry="morph.kline_final2",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "60", "USE_VP": "0",
+             "CNN_CHANS": "7", "CNN_SEEDS": "42,43", "CNN_EPOCHS": "5",
+             "CNN_WINDOW": "60", "CNN_STRIDE": "8"},
     ),
     # 纯 K 线第十二轮：VP（量价分布）指标 —— POC 距离/价值区间位置/上下方量比/VWAP 偏离
     "boost12": dict(
