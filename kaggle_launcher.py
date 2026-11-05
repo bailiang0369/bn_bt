@@ -155,6 +155,16 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=[],
     ),
+    # 纯 K 线第五轮：3m 基础 K 线 + 1D CNN 形态模型 + 四路融合
+    "boost5": dict(
+        slug="byh850515/btcusdt-kline-dl-3m-cnn",
+        title="BTCUSDT Kline DL 3m CNN",
+        entry="morph.kline_dl",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43,44,45,46", "CNN_SEEDS": "42,43", "CNN_EPOCHS": "4",
+             "CNN_STRIDE": "8", "CNN_STRIDE3": "4", "ROUNDS": "60"},
+    ),
     # 纯 K 线第四轮：评估端中心偏移调优（mu / 单边 vs 对称），val 选参 test 评估
     "boost4": dict(
         slug="byh850515/btcusdt-kline-boost4-threshold",
