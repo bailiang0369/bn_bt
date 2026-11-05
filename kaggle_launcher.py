@@ -155,6 +155,15 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=[],
     ),
+    # 纯 K 线第四轮：评估端中心偏移调优（mu / 单边 vs 对称），val 选参 test 评估
+    "boost4": dict(
+        slug="byh850515/btcusdt-kline-boost4-threshold",
+        title="BTCUSDT Kline Boost4 Threshold",
+        entry="morph.kline_boost4",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "60"},
+    ),
     # 纯 K 线第三轮：8seed / 软加权 / h1-2-3 融合 / 多样性 bagging
     "boost3": dict(
         slug="byh850515/btcusdt-kline-boost3-ens",
