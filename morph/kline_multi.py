@@ -28,14 +28,14 @@ from morph.kline_boost import (DAILY_K, OB_END, PARAMS, TEST_START, VAL_START,  
 HS = tuple(int(x) for x in os.environ.get("HS", "1,2,3,5,10").split(","))
 
 
-def evaluate(tag, s, ct, y, va, rows):
+def evaluate(tag, s, ct, y, va, rows, min_bars=1200):
     te = np.where(ct >= TEST_START)[0]
     z = zscore(s, s[va])
     dd = day_index(ct[te])
     r = {"static": global_topk_eval(s[te], y[te], dd, DAILY_K),
          "auc": float(roc_auc_score(y[te], z[te])),
          "daily": float(daily_topk_eval(s[te], y[te], dd,
-                                        complete_days(dd, 1200), DAILY_K).mean())}
+                                        complete_days(dd, min_bars), DAILY_K).mean())}
     edges = np.linspace(int(ct[te[0]]), int(ct[te[-1]]) + 1, 5).astype(np.int64)
     wv = []
     for i in range(4):

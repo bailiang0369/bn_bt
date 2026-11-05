@@ -168,6 +168,16 @@ PROJECTS = {
              "CNN_CHANS": "9", "CNN_SEEDS": "42,43", "CNN_EPOCHS": "10",
              "CNN_WINDOW": "120", "CNN_STRIDE": "16"},
     ),
+    # 纯 K 线第十五轮：三条"新视角"复核 —— 3m 公平头对头 + 多数票目标（连开）
+    "boost15": dict(
+        slug="byh850515/btcusdt-kline-probe",
+        title="BTCUSDT Kline Probe 3m MVote",
+        entry="morph.kline_probe",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43,44,45,46", "MV_SEEDS": "42,43,44", "ROUNDS": "60",
+             "MVS": "5:3,10:6,10:5"},
+    ),
     # 纯 K 线第十四轮：只把 seed 加到 5，CNN 保持第十一轮的 7 通道/60 窗口/5 epoch，
     # 隔离"seed 增益"（第十三轮 CNN9 与 CNN7 打平，混在一起看不清）
     "boost14": dict(
