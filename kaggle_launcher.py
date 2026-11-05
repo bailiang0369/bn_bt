@@ -155,6 +155,15 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=[],
     ),
+    # 纯 K 线第七轮：回归目标（学幅度）+ 时间衰减权重 + 分类×回归组合
+    "boost7": dict(
+        slug="byh850515/btcusdt-kline-reg",
+        title="BTCUSDT Kline Reg",
+        entry="morph.kline_reg",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43", "ROUNDS": "60"},
+    ),
     # 纯 K 线第六轮：CNN 8 通道（实体/影线/收益）+ 权重扫描融合
     "boost6": dict(
         slug="byh850515/btcusdt-kline-dl2-shape",
