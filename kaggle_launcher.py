@@ -155,6 +155,15 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=[],
     ),
+    # 纯 K 线第九轮：多 horizon 一致性加权（h=1/2/3/5/10 互相验证）
+    "boost9": dict(
+        slug="byh850515/btcusdt-kline-multi-h",
+        title="BTCUSDT Kline Multi H",
+        entry="morph.kline_multi",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43", "ROUNDS": "60"},
+    ),
     # 纯 K 线第八轮：窗口形状聚类 + 簇胜率前向编码 作为 LGB 特征
     "boost8": dict(
         slug="byh850515/btcusdt-kline-shape-cluster",
