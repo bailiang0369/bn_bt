@@ -1,4 +1,9 @@
-"""第十一轮（定稿）：63 特征多 horizon LGB + 无总成交量 CNN 融合。
+"""第十一轮：63 特征多 horizon LGB + 无总成交量 CNN 融合。
+
+⚠ 第十二~十四轮之后，**定稿已迁到 `morph/kline_final2.py`**（USE_VP=0、CNN_CHANS=7、
+  CNN_WINDOW=60、CNN_EPOCHS=5、SEEDS=42..46，launcher 项目 `boost14`）：
+  seed 2→5 不改 AUC（0.5285），但按天 topK 0.5937→0.5979、4 窗口 sd 0.0260→0.0234。
+  本文件保留为第 11 轮结论的可复现入口（2 seed 版本）。
 
 来自前十轮的确定性结论：
   - topK 的噪声地板：seed sd 0.47pt、窗口 sd 3.0pt，1pt 以内不可分；
