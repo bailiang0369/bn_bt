@@ -156,13 +156,14 @@ PROJECTS = {
         dataset_sources=[],
     ),
     # 纯 K 线第十三轮：定稿二 —— 5 seed + CNN 窗口120/10epoch/CVD斜率加速度
+    # 第十二轮已证 VP 无效（AUC 0.5277->0.5280，2/4 窗口反向），故 USE_VP=0
     "boost13": dict(
         slug="byh850515/btcusdt-kline-final2",
         title="BTCUSDT Kline Final2",
         entry="morph.kline_final2",
         enable_internet=True,
         dataset_sources=["byh850515/btcusdt-1m-full-2020"],
-        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "60", "USE_VP": "1",
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "60", "USE_VP": "0",
              "VP_WINS": "240,960,1440", "VP_TICK": "2.0", "VP_ANCHOR": "10",
              "CNN_SEEDS": "42,43", "CNN_EPOCHS": "10", "CNN_WINDOW": "120",
              "CNN_STRIDE": "16"},
