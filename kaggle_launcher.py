@@ -168,6 +168,16 @@ PROJECTS = {
              "CNN_CHANS": "9", "CNN_SEEDS": "42,43", "CNN_EPOCHS": "10",
              "CNN_WINDOW": "120", "CNN_STRIDE": "16"},
     ),
+    # 纯 K 线第十六轮：多数票目标（修正 off-by-one 标签）+ 连涨连跌形态条件概率表
+    "boost16": dict(
+        slug="byh850515/btcusdt-kline-mvote2",
+        title="BTCUSDT Kline MVote2",
+        entry="morph.kline_mvote2",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43,44,45,46", "MV_SEEDS": "42,43,44", "ROUNDS": "60",
+             "MVS": "5:3,5:4,10:5,10:6,10:7"},
+    ),
     # 纯 K 线第十五轮：三条"新视角"复核 —— 3m 公平头对头 + 多数票目标（连开）
     "boost15": dict(
         slug="byh850515/btcusdt-kline-probe-3m-mvote",

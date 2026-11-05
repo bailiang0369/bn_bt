@@ -46,11 +46,40 @@ MVS = tuple(tuple(int(x) for x in s.split(":"))
 
 
 def mv_ups(close, n, nmax):
-    """sum_{j=1..n} [close[t+j] > close[t+j-1]]，t = 0..nmax-1（只用未来 n 根，无泄漏）。"""
+    """sum_{j=1..n} [close[t+j] > close[t+j-1]]，t = 0..nmax-1（只用未来 n 根）。
+
+    索引推导（曾在这里写错，务必保留注释）：
+      up[i] = 1{close[i] > close[i-1]}，up[0]=0
+      c[k]  = sum(up[0..k-1]) = cumsum 前缀和（c 长度 len(close)+1）
+      sum_{j=1..n} up[t+j] = c[t+n+1] - c[t+1]
+    错误写法 `c[n:n+nmax] - c[:nmax]` 得到的是 up[t..t+n-1]：多算了 t 时刻**已知**的
+    那根 bar（把答案的一部分塞进标签）、少算了最远的 t+n 根，会把 own-label AUC 抬高。
+    """
     up = np.zeros(len(close), dtype=np.int32)
     up[1:] = (close[1:] > close[:-1])
     c = np.concatenate(([0], np.cumsum(up)))
-    return (c[n:n + nmax] - c[:nmax]).astype(np.int32)
+    return (c[n + 1:n + 1 + nmax] - c[1:nmax + 1]).astype(np.int32)
+
+
+def mv_ups_bruteforce(close, n, nmax):
+    """逐根循环的参考实现，只用于自检（慢，别在大数据上调）。"""
+    out = np.zeros(nmax, dtype=np.int32)
+    for t in range(nmax):
+        out[t] = int(sum(1 for j in range(1, n + 1) if close[t + j] > close[t + j - 1]))
+    return out
+
+
+def mv_selfcheck():
+    """向量化实现 vs 逐根实现：随机行情上必须逐元素相等。"""
+    rng = np.random.default_rng(0)
+    for n in (1, 3, 5, 10):
+        close = 100.0 * np.exp(np.cumsum(rng.normal(0, 1e-3, 200)))
+        a = mv_ups(close, n, 150)
+        b = mv_ups_bruteforce(close, n, 150)
+        bad = int((a != b).sum())
+        log(f"[mv 自检] n={n} 不一致 {bad} -> {'通过' if bad == 0 else '失败!'}")
+        if bad:
+            raise SystemExit("[mv] mv_ups 与逐根实现不一致，标签口径有 bug")
 
 
 def fit_plain(Xtr, Xpr, y, tr, va, seeds, rounds, names):
