@@ -155,6 +155,15 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=[],
     ),
+    # 纯 K 线第十一轮（定稿）：63特征多horizon + 无vol CNN 融合
+    "boost11": dict(
+        slug="byh850515/btcusdt-kline-final",
+        title="BTCUSDT Kline Final",
+        entry="morph.kline_final",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43", "CNN_EPOCHS": "5", "CNN_STRIDE": "8", "ROUNDS": "60"},
+    ),
     # 纯 K 线第十轮：剔除总成交量特征 + CNN 7 通道（合约 CVD）
     "boost10": dict(
         slug="byh850515/btcusdt-kline-novol",
