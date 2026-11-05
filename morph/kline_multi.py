@@ -25,7 +25,7 @@ from morph.kline_boost import (DAILY_K, OB_END, PARAMS, TEST_START, VAL_START,  
                                build_features, complete_days, daily_topk_eval,
                                day_index, global_topk_eval, load_klines, log, zscore)
 
-HS = (1, 2, 3, 5, 10)
+HS = tuple(int(x) for x in os.environ.get("HS", "1,2,3,5,10").split(","))
 
 
 def evaluate(tag, s, ct, y, va, rows):
@@ -44,9 +44,10 @@ def evaluate(tag, s, ct, y, va, rows):
         if len(idx):
             wv.append(global_topk_eval(s[idx], y[idx], day_index(ct[idx]), DAILY_K))
     r["w4"], r["w4sd"] = float(np.mean(wv)), float(np.std(wv, ddof=1))
+    r["wins"] = [round(x, 4) for x in wv]
     rows[tag] = r
     log(f"[{tag}] static={r['static']:.4f} AUC={r['auc']:.4f} 按天={r['daily']:.4f} "
-        f"窗口4={r['w4']:.4f}±{r['w4sd']:.4f}")
+        f"窗口4={r['w4']:.4f}±{r['w4sd']:.4f} 明细={r['wins']}")
     return r
 
 
@@ -87,15 +88,17 @@ def main():
     evaluate("h3_only", z3, ct, y3, va, rows)
     evaluate("mean_all", np.mean([zs[h] for h in HS], axis=0), ct, y3, va, rows)
 
+    near = [h for h in HS if h <= 3]
+    if len(near) > 1:
+        evaluate("mean_near", np.mean([zs[h] for h in near], axis=0), ct, y3, va, rows)
+    far = [h for h in HS if h >= 3]
+    if len(far) > 1:
+        evaluate("mean_far", np.mean([zs[h] for h in far], axis=0), ct, y3, va, rows)
+
     signs = np.array([np.sign(zs[h]) for h in HS])
     agree = np.abs(signs.sum(axis=0)) / len(HS)
-    evaluate("agree_mix", z3 * (0.5 + 0.5 * agree), ct, y3, va, rows)
     evaluate("mean_agree", np.mean([zs[h] for h in HS], axis=0) * (0.5 + 0.5 * agree),
              ct, y3, va, rows)
-
-    for th in (0.6, 0.8):
-        m = agree >= th
-        log(f"[agree>={th}] 覆盖率 train={m[tr].mean():.3f} test={m[ct >= TEST_START].mean():.3f}")
 
     log(f"\n{'变体':<12}{'static':>9}{'AUC':>8}{'按天':>8}{'窗口4':>8}{'4段sd':>8}")
     for k, r in rows.items():
