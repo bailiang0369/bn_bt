@@ -58,8 +58,13 @@ def build_vp(df, windows=VP_WINS, tick_bp=VP_TICK, anchor=VP_ANCHOR):
     bins = np.floor(np.log(np.maximum(tp, 1e-9)) / step).astype(np.int64)
     pos = np.arange(n)
 
-    a_idx = np.arange(anchor - 1, n, anchor)          # 直方图锚点
-    k_of = np.minimum(pos // anchor, len(a_idx) - 1)  # 每根 bar 对应的锚点下标
+    a_idx = np.arange(anchor - 1, n, anchor)          # 直方图锚点 9, 19, 29, ...
+    # 每根 bar 只能用它**之前或当前**的锚点：t=9..18 -> 锚点 9，t=19 -> 锚点 19。
+    # 注意不能写成 pos // anchor（t=10..18 会被映射到 t=19 的锚点 = 未来数据，
+    # 实测该错误让 AUC 从 0.53 虚增到 0.77）。
+    k_raw = (pos + 1) // anchor - 1
+    ready = k_raw >= 0
+    k_of = np.clip(k_raw, 0, len(a_idx) - 1)
 
     # 逐 bar 精确 VWAP：用 scale 避免 cumsum 精度损失
     vs = v / 1e3
@@ -110,7 +115,7 @@ def build_vp(df, windows=VP_WINS, tick_bp=VP_TICK, anchor=VP_ANCHOR):
         poc = poc_l[k_of]
         va_lo = lo_l[k_of]
         va_hi = hi_l[k_of]
-        ok = poc > 0
+        ok = (poc > 0) & ready
         poc_d = np.where(ok, (c - poc) / c * 1e4, 0.0)
         pos_va = np.where(ok, (c - va_lo) / np.maximum(va_hi - va_lo, 1e-9), 0.0)
         pos_va = np.clip(pos_va, -0.5, 1.5)
@@ -127,6 +132,32 @@ def build_vp(df, windows=VP_WINS, tick_bp=VP_TICK, anchor=VP_ANCHOR):
     return np.vstack(feats).T, names
 
 
+def vp_leak_check(n=20000, cut=17000, windows=(240, 960), anchor=10, seed=0):
+    """未来数据自检：随机化 cut 之后的全部行情，cut 之前的 VP 输出必须逐位不变。
+
+    这条检查抓到过 `pos // anchor` 的锚点错位（t=10..18 用到 t=19 的直方图），
+    当时 AUC 从 0.5277 虚增到 0.7658。任何新增 VP/窗口类特征都应先过这一关。
+    """
+    # cut 不能落在 anchor 整倍数上，否则最后一个锚点仍在 cut 之前，错位的锚点抓不到
+    cut = (cut // anchor) * anchor + anchor // 2
+    rng = np.random.default_rng(seed)
+    c = 60000 * np.exp(np.cumsum(rng.normal(0, 3e-4, n)))
+    o = c * (1 + rng.normal(0, 1e-4, n))
+    h = np.maximum(o, c) * (1 + np.abs(rng.normal(0, 2e-4, n)))
+    l = np.minimum(o, c) * (1 - np.abs(rng.normal(0, 2e-4, n)))
+    v = rng.lognormal(3, 1, n)
+    df = pl.DataFrame({"close": c, "open": o, "high": h, "low": l, "volume": v})
+    x1, _ = build_vp(df, windows=windows, anchor=anchor)
+    bad_df = pl.DataFrame({
+        "close": c[cut:] * 1.3, "open": o[cut:] * 0.7, "high": h[cut:] * 2.0,
+        "low": l[cut:] * 0.5, "volume": v[cut:] * 5.0,
+    })
+    x2, _ = build_vp(pl.concat([df.head(cut), bad_df]), windows=windows, anchor=anchor)
+    bad = int((x1[:cut] != x2[:cut]).sum())
+    log(f"[vp] 泄露自检：cut 之前不一致元素 {bad} -> {'通过' if bad == 0 else '失败!'}")
+    return bad == 0
+
+
 def fit_z(Xtr, Xpr, y, tr, va, nv, seeds, rounds, names):
     """按 horizon 训练，返回长度为 len(Xpr) 的 z 分数（val 段做参考）。"""
     acc = np.zeros(len(Xpr))
@@ -141,6 +172,10 @@ def fit_z(Xtr, Xpr, y, tr, va, nv, seeds, rounds, names):
 
 
 def main():
+    if os.environ.get("VP_SELFCHECK", "1") == "1":
+        if not vp_leak_check():
+            raise SystemExit("[vp] 泄露自检失败，拒绝继续（先修特征）")
+
     seeds = [int(x) for x in os.environ.get("SEEDS", "42,43").split(",")]
     rounds = int(os.environ.get("ROUNDS", "60"))
     nmax_h = max(HS)

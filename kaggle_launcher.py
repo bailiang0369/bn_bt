@@ -155,6 +155,18 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=[],
     ),
+    # 纯 K 线第十三轮：定稿二 —— 5 seed + CNN 窗口120/10epoch/CVD斜率加速度
+    "boost13": dict(
+        slug="byh850515/btcusdt-kline-final2",
+        title="BTCUSDT Kline Final2",
+        entry="morph.kline_final2",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "60", "USE_VP": "1",
+             "VP_WINS": "240,960,1440", "VP_TICK": "2.0", "VP_ANCHOR": "10",
+             "CNN_SEEDS": "42,43", "CNN_EPOCHS": "10", "CNN_WINDOW": "120",
+             "CNN_STRIDE": "16"},
+    ),
     # 纯 K 线第十二轮：VP（量价分布）指标 —— POC 距离/价值区间位置/上下方量比/VWAP 偏离
     "boost12": dict(
         slug="byh850515/btcusdt-kline-vp",
