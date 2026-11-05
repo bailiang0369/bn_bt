@@ -170,7 +170,7 @@ PROJECTS = {
     ),
     # 纯 K 线第十五轮：三条"新视角"复核 —— 3m 公平头对头 + 多数票目标（连开）
     "boost15": dict(
-        slug="byh850515/btcusdt-kline-probe",
+        slug="byh850515/btcusdt-kline-probe-3m-mvote",
         title="BTCUSDT Kline Probe 3m MVote",
         entry="morph.kline_probe",
         enable_internet=True,
