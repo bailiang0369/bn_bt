@@ -155,6 +155,16 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=[],
     ),
+    # 纯 K 线第十二轮：VP（量价分布）指标 —— POC 距离/价值区间位置/上下方量比/VWAP 偏离
+    "boost12": dict(
+        slug="byh850515/btcusdt-kline-vp",
+        title="BTCUSDT Kline VP",
+        entry="morph.kline_vp",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"SEEDS": "42,43", "ROUNDS": "60",
+             "VP_WINS": "240,960,1440", "VP_TICK": "2.0", "VP_ANCHOR": "10"},
+    ),
     # 纯 K 线第十一轮（定稿）：63特征多horizon + 无vol CNN 融合
     "boost11": dict(
         slug="byh850515/btcusdt-kline-final",
