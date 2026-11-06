@@ -29,6 +29,19 @@ PROJECTS = {
         enable_internet=True,
         dataset_sources=["byh850515/eth-btc-1m-2020"],
     ),
+    # 外部参考（termbin f8mx）可借鉴项 A/B：方向步进 / 自相关状态 / 分裂专模 / 极浅树
+    # 判据：roll3d 三窗均值 +≥0.5pp 且最差窗不退化（单窗 <1.5pp 视为噪声）
+    "borrow": dict(
+        slug="byh850515/btcusdt-borrowed-idea-ab",
+        title="BTCUSDT Borrowed Idea A/B (dir-step / regime / shallow)",
+        entry="morph.borrow_ab",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
+             "TRAIN_STRIDE": "2",
+             "VARIANTS": "base,dir,auto,diraut,regime,shallow",
+             "OUT": "/kaggle/working/borrow_pred.parquet"},
+    ),
     "orderbook": dict(
         slug="byh850515/btc-orderbook-lgbm",
         title="BTCUSDT OrderBook Features - LightGBM t+3",
