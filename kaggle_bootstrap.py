@@ -10,7 +10,9 @@ import subprocess
 import importlib
 
 REPO = "https://github.com/bailiang0369/bn_bt"
-ROOT = "/kaggle/working/bn_bt"
+# 克隆到 /tmp 而不是 /kaggle/working：/kaggle/working 下的所有东西都会进 kernel output，
+# 之前仓库整个被当成产物，`kaggle kernels output` 会重下几十 MB 项目代码。
+ROOT = "/tmp/bn_bt"
 
 
 def _entry():

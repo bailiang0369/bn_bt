@@ -33,7 +33,7 @@ PROJECTS = {
     # 判据：roll3d 三窗均值 +≥0.5pp 且最差窗不退化（单窗 <1.5pp 视为噪声）
     "borrow": dict(
         slug="byh850515/btcusdt-borrowed-idea-ab",
-        title="BTCUSDT Borrowed Idea A/B (dir-step / regime / shallow)",
+        title="BTCUSDT Borrowed Idea AB",
         entry="morph.borrow_ab",
         enable_internet=True,
         dataset_sources=["byh850515/btcusdt-1m-full-2020"],
@@ -41,6 +41,16 @@ PROJECTS = {
              "TRAIN_STRIDE": "2",
              "VARIANTS": "base,dir,auto,diraut,regime,shallow",
              "OUT": "/kaggle/working/borrow_pred.parquet"},
+    ),
+    # 同上实验的最终裁决：把 regime 分裂专模搬到**盘口腿（生产腿）**，口径与 znorm_eval 一致
+    "borrowob": dict(
+        slug="byh850515/btcusdt-borrowed-regime-ob",
+        title="BTCUSDT Borrowed Regime OrderBook",
+        entry="orderbook.borrow_ob",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"OFFS": "0,60,120", "SEEDS": "42,43,44,45,46", "ROUNDS": "60",
+             "VARIANTS": "base,auto,regime,rauto"},
     ),
     "orderbook": dict(
         slug="byh850515/btc-orderbook-lgbm",
