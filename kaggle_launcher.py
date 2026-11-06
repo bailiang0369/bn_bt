@@ -42,6 +42,16 @@ PROJECTS = {
              "VARIANTS": "base,dir,auto,diraut,regime,shallow",
              "OUT": "/kaggle/working/borrow_pred.parquet"},
     ),
+    # K 线腿多 horizon 的滚动 z 复核：§26 的 h 扫描是 static 口径，需确认 10/15min 优势是否真实
+    "khz": dict(
+        slug="byh850515/btcusdt-kline-h-roll",
+        title="BTCUSDT Kline H Roll",
+        entry="morph.kline_h_roll",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"HS": "3,5,10,15,30", "OFFSETS": "0,60,120", "SEEDS": "42,43",
+             "ROUNDS": "60", "TRAIN_STRIDE": "2"},
+    ),
     # 同上实验的最终裁决：把 regime 分裂专模搬到**盘口腿（生产腿）**，口径与 znorm_eval 一致
     "borrowob": dict(
         slug="byh850515/btcusdt-borrow-regime-ob",
