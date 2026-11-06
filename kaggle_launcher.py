@@ -44,8 +44,8 @@ PROJECTS = {
     ),
     # 同上实验的最终裁决：把 regime 分裂专模搬到**盘口腿（生产腿）**，口径与 znorm_eval 一致
     "borrowob": dict(
-        slug="byh850515/btcusdt-borrowed-regime-ob",
-        title="BTCUSDT Borrowed Regime OrderBook",
+        slug="byh850515/btcusdt-borrow-regime-ob",
+        title="BTCUSDT Borrow Regime OB",
         entry="orderbook.borrow_ob",
         enable_internet=True,
         dataset_sources=["byh850515/btcusdt-orderbook-features"],
