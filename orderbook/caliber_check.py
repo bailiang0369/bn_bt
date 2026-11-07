@@ -41,6 +41,22 @@ def fit(X, y, tr, cols, pred, seeds, rounds):
     return (acc / len(seeds)).astype(np.float32)
 
 
+def fit_es(X, y, tr, va_idx, cols, pred, seeds):
+    """与 znorm_eval.py 一致：val 上 early stopping（历史 0.6410 的来源配置）。"""
+    tr = tr[tr + H < int(va_idx[0])]
+    acc = np.zeros(len(pred))
+    iters = []
+    for sd in seeds:
+        q = dict(BASE, **OB_REG, seed=sd, bagging_seed=sd, feature_fraction_seed=sd,
+                 data_random_seed=sd)
+        m = lgb.train(q, lgb.Dataset(X[tr], y[tr], feature_name=cols), num_boost_round=600,
+                      valid_sets=[lgb.Dataset(X[va_idx], y[va_idx], feature_name=cols)],
+                      callbacks=[lgb.early_stopping(50, verbose=False)])
+        iters.append(int(m.best_iteration or 600))
+        acc += m.predict(X[pred], num_iteration=m.best_iteration)
+    return (acc / len(seeds)).astype(np.float32), iters
+
+
 def detail(z, y, dd, k_per_day):
     """返回 topK 准确率、覆盖天数、单天最大下单数。"""
     n_days = len(np.unique(dd))
@@ -83,23 +99,30 @@ def main():
         log(f"[off={off}] single 完成 {time.time()-t0:.0f}s")
 
         s_wf = np.zeros(L)
-        edges = [int(ct[te_idx[0]])]
-        while edges[-1] < int(ct[te_idx[-1]]):
-            edges.append(edges[-1] + BLOCK * DAY)
-        for b0, b1 in zip(edges[:-1], edges[1:]):
-            pred = np.where((ct >= b0) & (ct < b1))[0]
-            if len(pred) < 100:
-                continue
-            lo = int(ct[pred[0]]) - wf_win * DAY
-            trb = np.where((ct >= lo) & (ct < int(ct[pred[0]])))[0]
-            trb = trb[trb + H < int(pred[0])]
-            if len(trb) < 50000:
-                continue
-            s_wf[pred] = fit(X, y, trb, cols, pred, seeds, rounds)
-        log(f"[off={off}] wf{wf_win} 完成 {time.time()-t0:.0f}s")
+        if os.environ.get("WF", "1") == "1":
+            edges = [int(ct[te_idx[0]])]
+            while edges[-1] < int(ct[te_idx[-1]]):
+                edges.append(edges[-1] + BLOCK * DAY)
+            for b0, b1 in zip(edges[:-1], edges[1:]):
+                pred = np.where((ct >= b0) & (ct < b1))[0]
+                if len(pred) < 100:
+                    continue
+                lo = int(ct[pred[0]]) - wf_win * DAY
+                trb = np.where((ct >= lo) & (ct < int(ct[pred[0]])))[0]
+                trb = trb[trb + H < int(pred[0])]
+                if len(trb) < 50000:
+                    continue
+                s_wf[pred] = fit(X, y, trb, cols, pred, seeds, rounds)
+            log(f"[off={off}] wf{wf_win} 完成 {time.time()-t0:.0f}s")
 
         log(f"\n{'模型':<9}{'口径':<11}{'topK':>8}{'按天':>8}{'覆盖天':>8}{'单天峰值':>9}{'AUC':>8}")
-        for name, s in (("single", s_single), ("wf365", s_wf)):
+        models = [("single", s_single), ("wf365", s_wf)]
+        if os.environ.get("ES", "1") == "1":
+            s_es, iters = fit_es(X, y, np.arange(0, k1 - H), np.where(va_m)[0], cols,
+                                 te_idx, seeds)
+            models.append(("earlystop", s_es))
+            log(f"[off={off}] earlystop 完成 {time.time()-t0:.0f}s best_iter={iters}")
+        for name, s in models:
             for tag, z in (("static_val", (s - s[va_m].mean()) / (s[va_m].std() + 1e-9)),
                            ("roll_1d", rolling_z(s, 1440)),
                            ("roll_3d", rolling_z(s, 4320))):

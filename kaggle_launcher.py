@@ -59,7 +59,8 @@ PROJECTS = {
         entry="orderbook.caliber_check",
         enable_internet=True,
         dataset_sources=["byh850515/btcusdt-orderbook-features"],
-        env={"OFFS": "0", "SEEDS": "42,43,44,45,46", "ROUNDS": "60", "WF_WIN": "365"},
+        env={"OFFS": "0", "SEEDS": "42,43,44,45,46", "ROUNDS": "60", "WF_WIN": "365",
+             "ES": "1", "WF": "0"},
     ),
     # 三项已验证有效的改动合成：wf365 重训 + no_mom + 融合，扫 w×K 给最优操作点
     "best": dict(
