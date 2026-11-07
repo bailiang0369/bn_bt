@@ -35,26 +35,27 @@ BARS_7D = 7 * 1440
 
 
 def bucket_eval(z, y, s_t, dd, k_per_day, absr3, nb=5):
-    """按 s_t 分位切桶，返回每档指标 + 分层取单后的总体准确率。"""
+    """按 s_t 等数量切桶（rank 分桶，避免 s_t 有大量并列值时桶退化）。"""
     n_days = len(np.unique(dd))
     K = int(k_per_day * n_days)
-    qs = np.quantile(s_t, np.linspace(0, 1, nb + 1))
-    qs[0], qs[-1] = -np.inf, np.inf
+    order = np.argsort(s_t, kind="mergesort")
+    bounds = np.linspace(0, len(order), nb + 1).astype(int)
     rows, correct, used = [], 0, 0
     for b in range(nb):
-        m = (s_t > qs[b]) & (s_t <= qs[b + 1])
-        idx = np.where(m)[0]
+        idx = order[bounds[b]:bounds[b + 1]]
         if len(idx) < 200:
-            rows.append((b, len(idx), np.nan, np.nan, np.nan, np.nan, np.nan))
+            rows.append((b, len(idx), np.nan, np.nan, np.nan, np.nan, np.nan,
+                         np.nan, np.nan))
             continue
+        lo, hi = s_t[idx].min(), s_t[idx].max()
         k = max(int(round(K * len(idx) / len(y))), 20)
         pick = idx[np.argsort(-np.abs(z[idx]))[:k]]
         acc = float(((z[pick] > 0).astype(int) == y[pick]).mean())
         auc = float(roc_auc_score(y[idx], z[idx]))
         correct += int(((z[pick] > 0).astype(int) == y[pick]).sum())
         used += k
-        rows.append((b, len(idx), s_t[idx].mean(), float(np.nanmedian(absr3[idx])),
-                     auc, acc, k))
+        rows.append((b, len(idx), lo, hi, s_t[idx].mean(),
+                     float(np.nanmedian(absr3[idx])), auc, acc, k))
     layered = correct / max(used, 1)
     base_idx = np.argsort(-np.abs(z))[:K]
     base = float(((z[base_idx] > 0).astype(int) == y[base_idx]).mean())
@@ -79,8 +80,8 @@ def main():
     # s_t：过去 7 天 |r_3m| 中位数（bps），因果（shift(1) 后滚动）
     r3 = np.full(len(close), np.nan)
     r3[:-H] = (close[H:] / close[:-H] - 1.0) * 1e4
-    s_t = (pl.Series(r3).shift(1).rolling_median(BARS_7D, min_samples=2880)
-           .fill_null(np.nan).to_numpy())
+    s_t = (pl.Series(np.abs(r3)).shift(1).rolling_median(BARS_7D, min_samples=2880)
+           .to_numpy())
     log(f"[vol] s_t 中位数={np.nanmedian(s_t):.2f}bp  p10={np.nanpercentile(s_t,10):.2f} "
         f"p90={np.nanpercentile(s_t,90):.2f}")
 
@@ -103,22 +104,27 @@ def main():
         log(f"\n===== off={off} n={len(yy)} 天={len(np.unique(dd))} 基准={yy.mean():.4f} =====")
 
         rows, layered, base = bucket_eval(z, yy, sd, dd, DAILY_K, absr3, nb)
-        log(f"{'档':>3}{'样本数':>8}{'占比':>7}{'s_t均值':>9}{'|r3|中位':>9}{'AUC':>8}{'档内topK':>9}{'单量':>7}")
-        for b, n, sv, med, auc, acc, k in rows:
-            log(f"{b:>3}{n:>8}{n/len(yy):>7.2%}{sv:>9.2f}{med:>9.1f}{auc:>8.4f}{acc:>9.4f}{k:>7}")
+        log(f"{'档':>3}{'样本数':>8}{'占比':>7}  {'s_t区间bp':>13}"
+            f"{'s_t均值':>9}{'|r3|中位':>9}{'AUC':>8}{'档内topK':>9}{'单量':>7}")
+        for b, n, lo, hi, sv, med, auc, acc, k in rows:
+            log(f"{b:>3}{n:>8}{n/len(yy):>7.2%}  [{lo:>5.1f},{hi:>5.1f}]"
+                f"{sv:>9.2f}{med:>9.1f}{auc:>8.4f}{acc:>9.4f}{k:>7}")
 
         log(f"[对比] 全局 topK={base:.4f}  分层取单={layered:.4f}  Δ={(layered-base)*100:+.2f}pp")
-        log(f"\n[只在低波动档交易] 阈值=过去7天|r3|中位数的倍数")
-        log(f"{'只保留 s_t<=':>14}{'覆盖率':>8}{'样本数':>8}{'topK准确率':>11}")
-        for mult in (1.0, 1.5, 2.0, 3.0):
-            thr = np.nanmedian(sd) * mult
+        med_s = np.nanmedian(sd)
+        log(f"\n[只在低波动档交易] s_t 中位数={med_s:.2f}bp  阈值=中位数×倍数")
+        log(f"{'倍数':>6}{'阈值bp':>9}{'覆盖率':>8}{'样本数':>8}{'子集AUC':>9}{'topK准确率':>11}")
+        for mult in (0.6, 0.8, 1.0, 1.5, 2.0):
+            thr = med_s * mult
             m = sd <= thr
             if m.sum() < 500:
                 continue
             k = int(DAILY_K * len(np.unique(dd)) * m.mean())
             pick = np.argsort(-np.abs(z[m]))[:k]
             acc = float(((z[m][pick] > 0).astype(int) == yy[m][pick]).mean())
-            log(f"{mult:>14.1f}{m.mean():>8.2%}{int(m.sum()):>8}{acc:>11.4f}")
+            auc = float(roc_auc_score(yy[m], z[m]))
+            log(f"{mult:>6.1f}{thr:>9.2f}{m.mean():>8.2%}{int(m.sum()):>8}"
+                f"{auc:>9.4f}{acc:>11.4f}")
     log(f"\n[done] {time.time()-t0:.0f}s")
     return 0
 
