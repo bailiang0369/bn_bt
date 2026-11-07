@@ -52,6 +52,15 @@ PROJECTS = {
         env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
              "TRAIN_STRIDE": "2"},
     ),
+    # 口径对照：同一模型在 static_val / roll_1d / roll_3d 下的数字 + 覆盖天/单天峰值自证
+    "caliber": dict(
+        slug="byh850515/btcusdt-caliber-check",
+        title="BTCUSDT Caliber Check",
+        entry="orderbook.caliber_check",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"OFFS": "0", "SEEDS": "42,43,44,45,46", "ROUNDS": "60", "WF_WIN": "365"},
+    ),
     # 三项已验证有效的改动合成：wf365 重训 + no_mom + 融合，扫 w×K 给最优操作点
     "best": dict(
         slug="byh850515/btcusdt-best-combo",
