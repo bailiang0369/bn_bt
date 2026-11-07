@@ -84,11 +84,6 @@ def main():
                    f"{ok.mean():>8.2%}{ok[te].mean():>10.2%}{float(np.nanmedian(v)):>12.4g}")
     txt = "\n".join(out)
     log("\n" + txt)
-    try:
-        with open("/kaggle/working/newdiag.txt", "w", encoding="utf-8") as fh:
-            fh.write(txt + "\n")
-    except Exception as e:
-        log(f"[save] 失败 {e}")
 
     # 对齐抽查：取测试窗内 5 个时刻，打印特征值与前后 3 分钟收益
     idx = np.where(te & np.isfinite(feats["n_oi_px_div"]))[0]
@@ -110,7 +105,8 @@ def main():
             sp = pl.DataFrame({"tak": tak}).with_columns(
                 ((pl.col("tak") - pl.col("tak").rolling_mean(30))
                  / (pl.col("tak").rolling_std(30) + 1e-12)).alias("z"))
-            log(f"{'lag(min)':>9}{'AUC_raw':>9}{'AUC_z30':>9}{'corr前3m':>10}{'corr后3m':>10}")
+            out.append("")
+            out.append(f"{'lag(min)':>9}{'AUC_raw':>9}{'AUC_z30':>9}{'corr前3m':>10}{'corr后3m':>10}")
             for lag in (0, 5, 10, 15, 30, 60):
                 ct_l = ct - lag * 60_000
                 v1 = asof_t(t, sp["tak"].to_numpy(), ct_l)
@@ -123,7 +119,13 @@ def main():
                 b = np.isfinite(v1) & np.isfinite(r_bwd)
                 cf = np.corrcoef(v1[a], r_fwd[a])[0, 1] if a.sum() > 1000 else np.nan
                 cb = np.corrcoef(v1[b], r_bwd[b])[0, 1] if b.sum() > 1000 else np.nan
-                log(f"{lag:>9}{a1:>9.4f}{a2:>9.4f}{cf:>10.4f}{cb:>10.4f}")
+                out.append(f"{lag:>9}{a1:>9.4f}{a2:>9.4f}{cf:>10.4f}{cb:>10.4f}")
+    log("\n" + "\n".join(out))
+    try:
+        with open("/kaggle/working/newdiag.txt", "w", encoding="utf-8") as fh:
+            fh.write("\n".join(out) + "\n")
+    except Exception as e:
+        log(f"[save] 失败 {e}")
     log("[done]")
     return 0
 
