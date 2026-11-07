@@ -52,6 +52,18 @@ PROJECTS = {
         env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
              "TRAIN_STRIDE": "2"},
     ),
+    # 复跑 2026-11-03 那条产出 0.6410 的旧链路（fusion_kl.py），落 pred 供离线核对
+    "fuseold": dict(
+        slug="byh850515/btcusdt-fuse-old-repro",
+        title="BTCUSDT Fuse Old Repro",
+        entry="orderbook.fusion_kl",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features",
+                         "byh850515/btcusdt-1m-full-2020"],
+        env={"KAGGLE_OFFSETS": "0", "KAGGLE_OSEEDS": "42,43,44,45,46",
+             "KAGGLE_KSEEDS": "42,43,44", "KAGGLE_HORIZON": "3",
+             "KAGGLE_FUSION_PRED": "/kaggle/working/old_pred.parquet"},
+    ),
     # 口径对照：同一模型在 static_val / roll_1d / roll_3d 下的数字 + 覆盖天/单天峰值自证
     "caliber": dict(
         slug="byh850515/btcusdt-caliber-check",
