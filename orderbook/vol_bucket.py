@@ -111,20 +111,30 @@ def main():
                 f"{sv:>9.2f}{med:>9.1f}{auc:>8.4f}{acc:>9.4f}{k:>7}")
 
         log(f"[对比] 全局 topK={base:.4f}  分层取单={layered:.4f}  Δ={(layered-base)*100:+.2f}pp")
-        med_s = np.nanmedian(sd)
-        log(f"\n[只在低波动档交易] s_t 中位数={med_s:.2f}bp  阈值=中位数×倍数")
-        log(f"{'倍数':>6}{'阈值bp':>9}{'覆盖率':>8}{'样本数':>8}{'子集AUC':>9}{'topK准确率':>11}")
-        for mult in (0.6, 0.8, 1.0, 1.5, 2.0):
-            thr = med_s * mult
+
+        K = int(DAILY_K * len(np.unique(dd)))
+        log(f"\n[排序口径] 同一 K={K} 下换成别的打分")
+        for name, sc in (("|z|", np.abs(z)),
+                         ("|z|/s_t", np.abs(z) / np.maximum(sd, 1e-6)),
+                         ("|z|*s_t", np.abs(z) * sd)):
+            idx = np.argsort(-sc)[:K]
+            acc = float(((z[idx] > 0).astype(int) == yy[idx]).mean())
+            log(f"  {name:>8} topK={acc:.4f}")
+
+        log(f"\n[覆盖率曲线] 只在低波动时段下单：低波 topK vs 同单量全局 topK")
+        log(f"{'目标覆盖':>8}{'实际覆盖':>9}{'阈值bp':>8}{'单量':>6}"
+            f"{'子集AUC':>9}{'低波topK':>9}{'同K全局':>9}{'Δpp':>8}")
+        for q in (0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0):
+            thr = float(np.quantile(sd, q))
             m = sd <= thr
-            if m.sum() < 500:
-                continue
-            k = int(DAILY_K * len(np.unique(dd)) * m.mean())
-            pick = np.argsort(-np.abs(z[m]))[:k]
-            acc = float(((z[m][pick] > 0).astype(int) == yy[m][pick]).mean())
+            k = max(int(round(K * m.mean())), 20)
+            pl_ = np.argsort(-np.abs(z[m]))[:k]
+            acc_lv = float(((z[m][pl_] > 0).astype(int) == yy[m][pl_]).mean())
+            pg = np.argsort(-np.abs(z))[:k]
+            acc_g = float(((z[pg] > 0).astype(int) == yy[pg]).mean())
             auc = float(roc_auc_score(yy[m], z[m]))
-            log(f"{mult:>6.1f}{thr:>9.2f}{m.mean():>8.2%}{int(m.sum()):>8}"
-                f"{auc:>9.4f}{acc:>11.4f}")
+            log(f"{q:>8.0%}{m.mean():>9.2%}{thr:>8.2f}{k:>6}"
+                f"{auc:>9.4f}{acc_lv:>9.4f}{acc_g:>9.4f}{(acc_lv-acc_g)*100:>+8.2f}")
     log(f"\n[done] {time.time()-t0:.0f}s")
     return 0
 
