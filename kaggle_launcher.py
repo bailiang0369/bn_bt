@@ -52,6 +52,15 @@ PROJECTS = {
         env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
              "TRAIN_STRIDE": "2"},
     ),
+    # 波动率分桶：低波动期是否更好预测、是否该只在低波动档下单
+    "volbkt": dict(
+        slug="byh850515/btcusdt-vol-bucket",
+        title="BTCUSDT Vol Bucket",
+        entry="orderbook.vol_bucket",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"OFFS": "0", "SEEDS": "42,43,44,45,46", "ROUNDS": "60", "NB": "5"},
+    ),
     # 指标稳定性：只换种子组，看 static / roll_1d / roll_3d 各自抖多少
     "mstab": dict(
         slug="byh850515/btcusdt-metric-stability",
