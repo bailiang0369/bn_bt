@@ -52,6 +52,16 @@ PROJECTS = {
         env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
              "TRAIN_STRIDE": "2"},
     ),
+    # taker 主动成交多空量比（5 分钟 metrics）作为 K 线腿新信息：lag0 vs lag5 对照前视幅度
+    "taker": dict(
+        slug="byh850515/btcusdt-kline-taker",
+        title="BTCUSDT Kline Taker",
+        entry="morph.kline_taker",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
+             "TRAIN_STRIDE": "1", "VARIANTS": "base,recent,lag5,lag0,takonly"},
+    ),
     # 诊断：newinfo 异常高 AUC 的泄漏源
     "newdiag": dict(
         slug="byh850515/btcusdt-newinfo-diag",
