@@ -67,6 +67,7 @@ def main():
     seeds = [int(x) for x in os.environ.get("SEEDS", "42,43,44,45,46").split(",")]
     rounds = int(os.environ.get("ROUNDS", "60"))
     nb = int(os.environ.get("NB", "5"))
+    save = os.environ.get("SAVE_PRED", "1") == "1"
     t0 = time.time()
 
     df = load()
@@ -102,6 +103,14 @@ def main():
         absr3 = np.abs(r3[te_m])
         z, yy, sd, dd, absr3 = z[ok], yy[ok], sd[ok], dd[ok], absr3[ok]
         log(f"\n===== off={off} n={len(yy)} 天={len(np.unique(dd))} 基准={yy.mean():.4f} =====")
+        if save:
+            fp = f"/kaggle/working/volbkt_off{off}_pred.parquet"
+            try:
+                pl.DataFrame({"close_time": ct[te_m][ok], "z": z, "s_t": sd,
+                              "y": yy, "abs_r3": absr3}).write_parquet(fp)
+                log(f"[save] {fp} rows={len(z)}")
+            except Exception as e:  # 本地跑没有 /kaggle/working
+                log(f"[save] skip ({e})")
 
         rows, layered, base = bucket_eval(z, yy, sd, dd, DAILY_K, absr3, nb)
         log(f"{'档':>3}{'样本数':>8}{'占比':>7}  {'s_t区间bp':>13}"
