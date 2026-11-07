@@ -42,6 +42,18 @@ PROJECTS = {
              "VARIANTS": "base,dir,auto,diraut,regime,shallow",
              "OUT": "/kaggle/working/borrow_pred.parquet"},
     ),
+    # K 线腿特征组消融：定位独立信息在哪一类特征（第 1 步：单腿提升）
+    "ablate": dict(
+        slug="byh850515/btcusdt-kline-ablate",
+        title="BTCUSDT Kline Ablate",
+        entry="morph.kline_ablate",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
+             "TRAIN_STRIDE": "2",
+             "VARIANTS": "all,no_mom,flow_shape,flow_only,shape_only,vol_shape",
+             "OUT": "/kaggle/working/ablate_pred.parquet"},
+    ),
     # K 线腿多 horizon 的滚动 z 复核：§26 的 h 扫描是 static 口径，需确认 10/15min 优势是否真实
     "khz": dict(
         slug="byh850515/btcusdt-kline-h-roll",
