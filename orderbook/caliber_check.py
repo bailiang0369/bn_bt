@@ -118,8 +118,10 @@ def main():
         log(f"\n{'模型':<9}{'口径':<11}{'topK':>8}{'按天':>8}{'覆盖天':>8}{'单天峰值':>9}{'AUC':>8}")
         models = [("single", s_single), ("wf365", s_wf)]
         if os.environ.get("ES", "1") == "1":
-            s_es, iters = fit_es(X, y, np.arange(0, k1 - H), np.where(va_m)[0], cols,
-                                 te_idx, seeds)
+            tmp_s, iters = fit_es(X, y, np.arange(0, k1 - H), np.where(va_m)[0], cols,
+                                  te_idx, seeds)
+            s_es = np.zeros(L)
+            s_es[te_idx] = tmp_s
             models.append(("earlystop", s_es))
             log(f"[off={off}] earlystop 完成 {time.time()-t0:.0f}s best_iter={iters}")
         for name, s in models:
