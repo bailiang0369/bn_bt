@@ -52,6 +52,15 @@ PROJECTS = {
         env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
              "TRAIN_STRIDE": "2"},
     ),
+    # 诊断：newinfo 异常高 AUC 的泄漏源
+    "newdiag": dict(
+        slug="byh850515/btcusdt-newinfo-diag",
+        title="BTCUSDT NewInfo Diag",
+        entry="morph.newinfo_diag",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={},
+    ),
     # 盘口腿 walk-forward 滚动重训：验证"模型太旧/漂移"是不是 0.62 卡住的主因
     "wfrefit": dict(
         slug="byh850515/btcusdt-wf-refit",
