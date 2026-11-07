@@ -96,8 +96,43 @@ def main():
     for i in idx[:: max(1, len(idx) // 5)][:5]:
         log(f"  {int(ct[i])} {feats['n_doi_7d'][i]:.5f} {feats['n_oi_px_div'][i]:+.5f} "
             f"{r_bwd[i]*1e4:+.1f}bp {r_fwd[i]*1e4:+.1f}bp")
+
+    # ---- 滞后敏感性：区分"真信号"与"5 分钟桶内前视" ----
+    # metrics 的 create_time 若是窗口**起点**，则 t 处使用它会看到 t~t+5m 的成交 → 泄漏。
+    # 真信号会随滞后缓慢衰减；前视会在 lag>=5min 时断崖归零。
+    if m is not None:
+        t = m["t"].to_numpy()
+        tak = (m["sum_taker_long_short_vol_ratio"].to_numpy()
+               if "sum_taker_long_short_vol_ratio" in m.columns else None)
+        log(f"\n[metrics 原始行] {pl.Series(t[:3]).cast(pl.Datetime('ms')).to_list()} "
+            f"步长(分钟)={np.unique(np.diff(t[:5]) / 60000.0)}")
+        if tak is not None:
+            sp = pl.DataFrame({"tak": tak}).with_columns(
+                ((pl.col("tak") - pl.col("tak").rolling_mean(30))
+                 / (pl.col("tak").rolling_std(30) + 1e-12)).alias("z"))
+            log(f"{'lag(min)':>9}{'AUC_raw':>9}{'AUC_z30':>9}{'corr前3m':>10}{'corr后3m':>10}")
+            for lag in (0, 5, 10, 15, 30, 60):
+                ct_l = ct - lag * 60_000
+                v1 = asof_t(t, sp["tak"].to_numpy(), ct_l)
+                v2 = asof_t(t, sp["z"].to_numpy(), ct_l)
+                ok1 = np.isfinite(v1)
+                t_ok = np.isfinite(v2) & te
+                a1 = roc_auc_score(y[ok1], v1[ok1]) if ok1.sum() > 1000 else np.nan
+                a2 = roc_auc_score(y[t_ok], v2[t_ok]) if t_ok.sum() > 1000 else np.nan
+                a = np.isfinite(v1) & np.isfinite(r_fwd)
+                b = np.isfinite(v1) & np.isfinite(r_bwd)
+                cf = np.corrcoef(v1[a], r_fwd[a])[0, 1] if a.sum() > 1000 else np.nan
+                cb = np.corrcoef(v1[b], r_bwd[b])[0, 1] if b.sum() > 1000 else np.nan
+                log(f"{lag:>9}{a1:>9.4f}{a2:>9.4f}{cf:>10.4f}{cb:>10.4f}")
     log("[done]")
     return 0
+
+
+def asof_t(ts, vals, query):
+    ts = np.asarray(ts, dtype=np.int64)
+    idx = np.searchsorted(ts, query, side="right") - 1
+    return np.where(idx >= 0, np.asarray(vals, dtype=np.float64)[np.clip(idx, 0, len(vals) - 1)],
+                    np.nan)
 
 
 if __name__ == "__main__":
