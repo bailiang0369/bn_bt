@@ -42,6 +42,28 @@ PROJECTS = {
              "VARIANTS": "base,dir,auto,diraut,regime,shallow",
              "OUT": "/kaggle/working/borrow_pred.parquet"},
     ),
+    # K 线腿引入非价格新信息（资金费率/持仓量/大户多空比/taker 多空量比）
+    "newinfo": dict(
+        slug="byh850515/btcusdt-kline-newinfo",
+        title="BTCUSDT Kline NewInfo",
+        entry="morph.kline_newinfo",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
+             "TRAIN_STRIDE": "2"},
+    ),
+    # 两腿融合 + 频次-准确率曲线（65% 目标的落点）
+    "fusek": dict(
+        slug="byh850515/btcusdt-fuse-kbest",
+        title="BTCUSDT Fuse KBest",
+        entry="orderbook.fuse_kbest",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features",
+                         "byh850515/btcusdt-1m-full-2020"],
+        env={"OFFS": "0,60,120", "OSEEDS": "42,43,44,45,46", "KSEEDS": "42,43",
+             "ROUNDS": "60", "KL_SUBSET": "all",
+             "OUT": "/kaggle/working/fuse_pred.parquet"},
+    ),
     # K 线腿特征组消融：定位独立信息在哪一类特征（第 1 步：单腿提升）
     "ablate": dict(
         slug="byh850515/btcusdt-kline-ablate",
