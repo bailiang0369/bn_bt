@@ -52,6 +52,17 @@ PROJECTS = {
         env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
              "TRAIN_STRIDE": "2"},
     ),
+    # 三项已验证有效的改动合成：wf365 重训 + no_mom + 融合，扫 w×K 给最优操作点
+    "best": dict(
+        slug="byh850515/btcusdt-best-combo",
+        title="BTCUSDT Best Combo",
+        entry="orderbook.best_combo",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features",
+                         "byh850515/btcusdt-1m-full-2020"],
+        env={"OFFS": "0,60,120", "OSEEDS": "42,43,44", "KSEEDS": "42,43",
+             "ROUNDS": "60", "WF_WIN": "365"},
+    ),
     # taker 主动成交多空量比（5 分钟 metrics）作为 K 线腿新信息：lag0 vs lag5 对照前视幅度
     "taker": dict(
         slug="byh850515/btcusdt-kline-taker",
