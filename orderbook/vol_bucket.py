@@ -130,9 +130,9 @@ def main():
             acc = float(((z[idx] > 0).astype(int) == yy[idx]).mean())
             log(f"  {name:>8} topK={acc:.4f}")
 
-        log(f"\n[覆盖率曲线] 只在低波动时段下单：低波 topK vs 同单量全局 topK")
+        log(f"\n[覆盖率曲线-缩量] 低波 topK vs 同单量全局 topK（EV=0.8p-(1-p)，80% payout）")
         log(f"{'目标覆盖':>8}{'实际覆盖':>9}{'阈值bp':>8}{'单量':>6}"
-            f"{'子集AUC':>9}{'低波topK':>9}{'同K全局':>9}{'Δpp':>8}")
+            f"{'子集AUC':>9}{'低波topK':>9}{'EV/单':>7}{'同K全局':>9}{'Δpp':>8}")
         for q in (0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0):
             thr = float(np.quantile(sd, q))
             m = sd <= thr
@@ -143,7 +143,22 @@ def main():
             acc_g = float(((z[pg] > 0).astype(int) == yy[pg]).mean())
             auc = float(roc_auc_score(yy[m], z[m]))
             log(f"{q:>8.0%}{m.mean():>9.2%}{thr:>8.2f}{k:>6}"
-                f"{auc:>9.4f}{acc_lv:>9.4f}{acc_g:>9.4f}{(acc_lv-acc_g)*100:>+8.2f}")
+                f"{auc:>9.4f}{acc_lv:>9.4f}{0.8*acc_lv-(1-acc_lv):>7.3f}"
+                f"{acc_g:>9.4f}{(acc_lv-acc_g)*100:>+8.2f}")
+
+        log(f"\n[固定单量 {K} 单] 只在低波子集内选单，与全局 {base:.4f} 对比")
+        log(f"{'覆盖':>6}{'子集样本':>9}{'选单占比':>9}{'AUC':>8}"
+            f"{'topK':>8}{'EV/单':>8}{'vs全局pp':>9}")
+        for q in (0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0):
+            thr = float(np.quantile(sd, q))
+            idx = np.where(sd <= thr)[0]
+            if len(idx) <= K:
+                continue
+            pick = idx[np.argsort(-np.abs(z[idx]))[:K]]
+            acc = float(((z[pick] > 0).astype(int) == yy[pick]).mean())
+            auc = float(roc_auc_score(yy[idx], z[idx]))
+            log(f"{q:>6.0%}{len(idx):>9}{K/len(idx):>9.1%}{auc:>8.4f}"
+                f"{acc:>8.4f}{0.8*acc-(1-acc):>8.3f}{(acc-base)*100:>+9.2f}")
     log(f"\n[done] {time.time()-t0:.0f}s")
     return 0
 
