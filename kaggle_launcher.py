@@ -61,7 +61,7 @@ PROJECTS = {
         dataset_sources=["byh850515/btcusdt-orderbook-features",
                          "byh850515/btcusdt-1m-full-2020"],
         env={"OFFS": "0,60,120", "OSEEDS": "42,43,44,45,46", "KSEEDS": "42,43",
-             "ROUNDS": "60", "KL_SUBSET": "all",
+             "ROUNDS": "60", "KL_SUBSET": "no_mom",
              "OUT": "/kaggle/working/fuse_pred.parquet"},
     ),
     # K 线腿特征组消融：定位独立信息在哪一类特征（第 1 步：单腿提升）
