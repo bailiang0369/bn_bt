@@ -52,6 +52,16 @@ PROJECTS = {
         env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
              "TRAIN_STRIDE": "2"},
     ),
+    # 指标稳定性：只换种子组，看 static / roll_1d / roll_3d 各自抖多少
+    "mstab": dict(
+        slug="byh850515/btcusdt-metric-stability",
+        title="BTCUSDT Metric Stability",
+        entry="orderbook.metric_stability",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"OFF": "0", "ROUNDS": "60",
+             "SEED_GROUPS": "42,43,44,45,46;142,143,144,145,146;242,243,244,245,246"},
+    ),
     # 复跑 2026-11-03 那条产出 0.6410 的旧链路（fusion_kl.py），落 pred 供离线核对
     "fuseold": dict(
         slug="byh850515/btcusdt-fuse-old-repro",
