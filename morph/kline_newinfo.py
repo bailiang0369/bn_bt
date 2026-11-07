@@ -191,10 +191,11 @@ def add_new(ct, close, f, m):
                           ("n_lsr_cnt_z30", "lsr_c_z"), ("n_lsr_sum_z30", "lsr_s_z"),
                           ("n_taker_lsr", "tak"), ("n_taker_lsr_z30", "tak_z")):
             out[name] = asof(t, sp[col].to_numpy(), ct)
+        # 过去 1 天收益（必须用过去！用 t+1d 的收益会把标签直接喂进特征）
         ret1d = np.full(len(ct), np.nan)
-        nxt = np.searchsorted(ct, ct + DAY, side="left")
-        ok = nxt < len(ct)
-        ret1d[ok] = close[nxt[ok]] / close[ok] - 1.0
+        prev = np.clip(np.searchsorted(ct, ct - DAY, side="left"), 0, len(ct) - 1)
+        ok = prev < np.arange(len(ct))
+        ret1d[ok] = close[ok] / close[prev[ok]] - 1.0
         out["n_oi_px_div"] = out.get("n_doi_7d", np.full(len(ct), np.nan)) - ret1d
     return {c: np.nan_to_num(out.get(c, np.full(len(ct), np.nan)), nan=np.nan).astype(np.float32)
             for c in NEW}

@@ -52,6 +52,16 @@ PROJECTS = {
         env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
              "TRAIN_STRIDE": "2"},
     ),
+    # 盘口腿 walk-forward 滚动重训：验证"模型太旧/漂移"是不是 0.62 卡住的主因
+    "wfrefit": dict(
+        slug="byh850515/btcusdt-wf-refit",
+        title="BTCUSDT WF Refit",
+        entry="orderbook.wf_refit",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"OFFS": "0,60,120", "SEEDS": "42,43,44", "BASE_SEEDS": "42,43,44,45,46",
+             "ROUNDS": "60", "WINS": "180,365"},
+    ),
     # 两腿融合 + 频次-准确率曲线（65% 目标的落点）
     "fusek": dict(
         slug="byh850515/btcusdt-fuse-kbest",
