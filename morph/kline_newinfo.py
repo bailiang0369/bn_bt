@@ -131,7 +131,14 @@ def build(kind, d):
     if d is None:
         return None
     tcol = "calc_time" if kind == "fundingRate" else "create_time"
-    d = d.with_columns(pl.col(tcol).cast(pl.Int64).alias("t")).sort("t").unique(subset=["t"])
+    if str(d.schema[tcol]) in ("String", "Utf8", "Categorical"):
+        d = d.with_columns(pl.col(tcol).str.to_datetime(strict=False)
+                           .dt.timestamp("ms").cast(pl.Int64).alias(tcol))
+    else:
+        d = d.with_columns(pl.col(tcol).cast(pl.Int64).alias(tcol))
+    if d[tcol].max() is not None and d[tcol].max() < 1e11:   # 秒 -> 毫秒
+        d = d.with_columns((pl.col(tcol) * 1000).alias(tcol))
+    d = d.with_columns(pl.col(tcol).alias("t")).sort("t").unique(subset=["t"])
     if kind == "fundingRate":
         return d.select("t", pl.col("last_funding_rate").cast(pl.Float64).alias("fund"))
     keep = [c for c in ("sum_open_interest", "sum_open_interest_value",

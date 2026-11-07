@@ -112,12 +112,16 @@ def main():
         s_kl = fit(X_kl, y_kl, tr_kl, kl_cols, kseeds, rounds, KL_PARAMS)
         log(f"[off={off}] 训练完成 ({time.time()-t0:.0f}s)  test={int(te_ob.sum())} 天={len(np.unique(day_index(ct_ob[te_ob])))}")
 
-        # K 线分数对齐到盘口网格（close_time +1ms 精确匹配）
-        pos = np.searchsorted(ct_kl + 1, ct_ob)
-        pos = np.clip(pos, 0, len(ct_kl) - 1)
-        match = (ct_kl[pos] + 1) == ct_ob
+        # K 线分数对齐到盘口网格：两套数据的 close_time 口径可能差 1ms，自动选命中率最高的位移
+        best = None
+        for shift in (0, 1, -1, 2, -2):
+            pos = np.clip(np.searchsorted(ct_kl + shift, ct_ob), 0, len(ct_kl) - 1)
+            m = (ct_kl[pos] + shift) == ct_ob
+            if best is None or m.mean() > best[0]:
+                best = (m.mean(), shift, pos, m)
+        hit, shift, pos, match = best
         s_kl_on_ob = np.where(match, s_kl[pos], 0.0)
-        log(f"    对齐命中率={match.mean():.4f}")
+        log(f"    对齐位移={shift:+d}ms 命中率={hit:.4f}（K线 {len(ct_kl)} 行 / 盘口 {len(ct_ob)} 行）")
 
         z_ob1, z_ob3 = roll_z(s_ob, 1440), roll_z(s_ob, 4320)
         z_kl1, z_kl3 = roll_z(s_kl_on_ob, 1440), roll_z(s_kl_on_ob, 4320)
