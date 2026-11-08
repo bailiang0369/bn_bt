@@ -459,17 +459,16 @@ PROJECTS = {
         dataset_sources=["byh850515/btcusdt-1m-full-2020"],
         env={"SEEDS": "42,43", "ROUNDS": "60", "ONLY": ""},
     ),
-    # 重建训练宽表：kernel 内直接拉 bn_hisdata 的 Release（K 线 + 订单簿特征），
-    # 本地不下载大文件；行范围由订单簿覆盖区间决定，产物落 kernel output。
-    "dataset": dict(
-        slug="byh850515/btcusdt-ob-kline-dataset",
-        title="BTCUSDT OB+Kline Dataset",
-        entry="morph.build_dataset",
+    # 一条命令跑完：kernel 内直接拉 bn_hisdata 的 Release（K 线 + 订单簿特征）->
+    # 算特征 -> 训练 -> 评估。迭代特征就改代码重推，不落"数据集"、不挂 Dataset。
+    "run": dict(
+        slug="byh850515/btcusdt-ob-kline-run",
+        title="BTCUSDT OB+Kline Train Eval",
+        entry="morph.run_all",
         enable_internet=True,
         dataset_sources=[],
         env={"SYMBOL": "BTCUSDT", "KLINE_SRC": "um", "WITH_BASIS": "0",
-             "OB_TAG": "ob-dataset-vol8", "KLINE_TAG": "vision-base",
-             "OUT": "/kaggle/working/BTCUSDT_ob_kline.parquet"},
+             "HORIZON": "3", "TARGET_TPD": "15", "ROUNDS": "2000"},
     ),
 }
 
