@@ -167,14 +167,26 @@ def drop(p: Path) -> None:
 
 
 # ---------------------------------------------------------------- 特征
+_SCHEMA_LOGGED = False
+
+
 def hour_feats(path: Path) -> pl.DataFrame:
     """一小时原始事件流 → 该小时每个分钟桶一行 sb_* 基础聚合。"""
+    global _SCHEMA_LOGGED
     need = {"side", "price", "quantity", "event_time", "event_type"}
     schema = pl.read_parquet_schema(path)
     if not need.issubset(set(schema)):
         log(f"[skip] {path.name} 列不全: {sorted(schema)}")
         return pl.DataFrame()
     df = pl.read_parquet(path, columns=list(need))
+    if not _SCHEMA_LOGGED:
+        log(f"原始 schema: {dict(schema)}")      # quantity/price 实测是 str，必须转
+        _SCHEMA_LOGGED = True
+    df = df.with_columns(
+        pl.col("quantity").cast(pl.Float64, strict=False),
+        pl.col("price").cast(pl.Float64, strict=False),
+        pl.col("event_time").cast(pl.Int64, strict=False),
+    )
     df = df.with_columns(
         pl.when(pl.col("event_type") == "snapshot").then(1).otherwise(0).alias("_snap"))
     # snapshot 必须排在同一毫秒的 update 之前，否则基准量会被反算
