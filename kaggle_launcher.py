@@ -566,6 +566,15 @@ PROJECTS = {
              "BOOT": "1000", "PLACEBO": "200", "MIN_COV": "0.34", "EXP": "G1",
              "OUT": "/kaggle/working/h3_gate_pred.parquet"},
     ),
+    # ETH 数据集 schema 探针（只读挂载数据，不训练）
+    "ethprobe": dict(
+        slug="byh850515/ethusdt-schema-probe",
+        title="ETHUSDT Schema Probe",
+        entry="morph.eth_probe",
+        enable_internet=True,
+        dataset_sources=["byh850515/ethusdt-merged-features"],
+        env={},
+    ),
 }
 
 
