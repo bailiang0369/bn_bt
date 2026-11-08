@@ -116,3 +116,59 @@ python kaggle_launcher.py --project morph --push --wait --logs --parse
 - [x] orderbook `train.py` 确认有 `main()`，且 `load_data()` 已 Kaggle `/kaggle/input` 自适应
 - [ ] 首次 `--project morph --push --wait --logs --parse` 实跑，确认 clone/安装/入口链路通
 - [ ] 首次 `--project orderbook` 实跑，确认 dataset 挂载路径与 `btcusdt-orderbook-features` 结构一致
+
+---
+
+## 9. 实际状态修订（2026-11-08，与上文冲突时以本节为准）
+
+上文 §1~§5 是初版设计，后续迭代已变更多处。新窗口按本节操作即可。
+
+### 9.1 代码链路
+- `kaggle_bootstrap.py` 把仓库 clone 到 **`/tmp/bn_bt`**（不是 `/kaggle/working/bn_bt`：
+  后者会把整个项目当成 kernel output，每次下载几十 MB）。
+- **改代码必须先 `git commit` + `git push`，再推 kernel** —— kernel 里跑的是 GitHub 上的版本，
+  本地未提交的改动不会生效（这个坑在本窗口踩过一次，白跑一轮）。
+- `requirements.txt` 另加了 `zstandard`（原始订单簿 `.parquet.zst` 解压用）；
+  torch 仍不装，用 Kaggle 镜像自带的 CPU 版。
+
+### 9.2 launcher 命令
+```powershell
+python kaggle_launcher.py --project <项目名>                     # 默认 push + 轮询 + 拉日志
+python kaggle_launcher.py --project <项目名> --no-wait --no-logs # 只推，稍后自己查
+python kaggle_launcher.py --project <项目名> --no-wait --no-logs --set K=V --set K2=V2
+```
+- 参数是**反向开关**：没有 `--push` / `--wait` / `--logs`，只有 `--no-*` 用来关掉默认行为。
+- `--set K=V` 可多次，临时覆盖 env，不必改 `PROJECTS` 配置就能跑 smoke（例如
+  `--set MAX_HOURS=3 --set EXP=S0`）。
+- `--parse` 从日志里过滤关键指标行。
+- `stage()` 会注入 `KAGGLE_ENTRY` + 项目 env + secrets 到 bootstrap 副本首行，
+  因为 script kernel 只上传 `code_file` 这一个文件。
+
+### 9.3 密钥（绝不进仓库）
+- 本地文件 `.codebuddy/settings.json`，已被 `.gitignore` 忽略。
+- 项目配置里写 `secrets=["CHD_API_KEY"]`，`stage()` 从上述文件读出并注入 kernel env；
+  **不要把密钥写进 `PROJECTS` 的 env**（那是公开仓库里的源码）。
+- 当前存有 `CHD_API_KEY`（CryptoHFTData R2，取原始订单簿小时文件）。
+
+### 9.4 数据下载通道（重要）
+- `morph/ob_kline.py:fetch()` 取 GitHub Release 资产：
+  - `browser_download_url`（Release 页面直链）**当前一律 504**（本地也 504，与 UA 无关）；
+  - **asset API** `/repos/{owner}/{repo}/releases/assets/{id}` + `Accept: application/octet-stream`
+    → 206 正常。已改为优先 API、直链兜底，并保留 Range 断点续传与 12 次重试（3s 起退避）。
+  - 实测 393.6MB 整包约 13 秒；`OB_MONTHS=auto` 可改走月度分片（17~27MB/个）。
+- `kaggle kernels logs` 返回的是 JSON 数组，用 `kaggle_launcher._decode_logs()` 解成纯文本。
+- kernel status 显示 `COMPLETE` **不代表业务成功**：日志里可能已经 `SystemExit`，
+  要看有没有 `DONE` 以及 traceback。
+
+### 9.5 轮询
+- 不要用一次长 `Start-Sleep`（工具会因无输出 idle timeout 被中断）。
+- 用带输出的短循环，例如每分钟打印一次状态、命中 `COMPLETE|ERROR` 就 break：
+```powershell
+$S='<slug>'; for($i=0;$i -lt 15;$i++){ $o=(kaggle kernels status $S);
+  Write-Output "[$i] $o"; if($o -match 'COMPLETE|ERROR'){break}; Start-Sleep -Seconds 60 }
+```
+
+### 9.6 算力与约定
+- **GPU 默认关闭**（`enable_gpu:false`）。未经用户明确要求不要开 GPU、不要装 `faiss-gpu`。
+- 日志里中文可能乱码，脚本内加 `sys.stdout.reconfigure(encoding="utf-8")`。
+- Kaggle kernel 之间不共享 `/kaggle/working` 产物；要跨 kernel 复用数据得另外发布 Dataset。
