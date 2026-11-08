@@ -58,25 +58,47 @@ _ASSETS: dict[str, dict[str, dict]] = {}
 
 
 def _assets(tag: str) -> dict[str, dict]:
-    """{资产名: {size, url}}；公开仓库匿名即可。"""
+    """{资产名: {size, url}}；公开仓库匿名即可（同样带重试：网关 5xx 很常见）。"""
     if tag in _ASSETS:
         return _ASSETS[tag]
     h = {"Accept": "application/vnd.github+json"}
     tok = os.environ.get("GH_TOKEN")
     if tok:
         h["Authorization"] = f"Bearer {tok}"
-    r = requests.get(f"{GH_API}/repos/{REPO}/releases/tags/{tag}", headers=h, timeout=60)
-    if r.status_code != 200:
-        raise SystemExit(f"取 release {tag} 失败: HTTP {r.status_code} {r.text[:200]}")
-    out = {a["name"]: {"size": a["size"], "url": a["browser_download_url"]}
-           for a in r.json()["assets"]}
-    _ASSETS[tag] = out
-    log(f"release {tag}: {len(out)} 个资产")
-    return out
+    last: Exception | None = None
+    for attempt in range(1, RETRIES + 1):
+        try:
+            r = requests.get(f"{GH_API}/repos/{REPO}/releases/tags/{tag}",
+                             headers=h, timeout=60)
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code} {r.text[:120]}")
+            out = {a["name"]: {"size": a["size"], "url": a["browser_download_url"]}
+                   for a in r.json()["assets"]}
+            _ASSETS[tag] = out
+            log(f"release {tag}: {len(out)} 个资产")
+            return out
+        except Exception as e:
+            last = e
+            log(f"取 release {tag} 第 {attempt}/{RETRIES} 次失败: {e}")
+            if attempt < RETRIES:
+                time.sleep(min(60, 5 * 2 ** (attempt - 1)))
+    raise SystemExit(f"取 release {tag} 重试 {RETRIES} 次仍失败: {last}")
+
+
+RETRIES = int(os.environ.get("DL_RETRIES", "6"))
+
+
+def _part_bytes(part: Path) -> int:
+    return part.stat().st_size if part.exists() else 0
 
 
 def fetch(tag: str, name: str) -> Path:
-    """Range 续传下载到 /tmp 缓存；已下满（大小一致）直接复用。"""
+    """Range 续传下载到 /tmp 缓存；已下满（大小一致）直接复用。
+
+    GitHub Release 对 393MB 的订单簿包会偶发 **504**（网关读超时），而且一次失败就整个
+    kernel 挂掉，白等十几分钟。所以这里做成「失败 → 续传重试」：504 时 `.part` 保留，
+    下一次带 `Range` 从断点继续，退避 5/10/20/40/60s 最多 6 次。
+    """
     a = _assets(tag).get(name)
     if a is None:
         raise SystemExit(f"{tag} 里没有资产 {name}")
@@ -87,30 +109,43 @@ def fetch(tag: str, name: str) -> Path:
             return dst
         dst.unlink()
     part = dst.with_name(dst.name + ".part")
-    start = part.stat().st_size if part.exists() else 0
-    if start > size:
-        part.unlink()
-        start = 0
-    if start == size:
-        part.replace(dst)
-        return dst
-    headers = {"Range": f"bytes={start}-"} if start else {}
-    log(f"下载 {name} {size / 1e6:.1f} MB"
-        + (f"（续传 {start / 1e6:.1f} MB）" if start else ""))
-    with requests.get(a["url"], stream=True, timeout=300, headers=headers) as r:
-        if start and r.status_code == 206:
-            mode = "ab"
-        elif r.status_code in (200, 206):
-            mode = "wb"
-        else:
-            raise SystemExit(f"下载 {name} 失败: HTTP {r.status_code}")
-        with open(part, mode) as f:
-            for chunk in r.iter_content(1 << 20):
-                f.write(chunk)
-    part.replace(dst)
-    if dst.stat().st_size != size:
-        raise SystemExit(f"{name} 大小不符: {dst.stat().st_size} != {size}")
-    return dst
+
+    for attempt in range(1, RETRIES + 1):
+        start = _part_bytes(part)
+        if start > size:                      # 上次留下的垃圾，重下
+            part.unlink()
+            start = 0
+        if start == size:                     # 断点已到末尾：直接落盘
+            part.replace(dst)
+            return dst
+        headers = {"Range": f"bytes={start}-"} if start else {}
+        log(f"下载 {name} {size / 1e6:.1f} MB"
+            + (f"（续传 {start / 1e6:.1f} MB）" if start else "")
+            + (f" 第 {attempt}/{RETRIES} 次" if attempt > 1 else ""))
+        try:
+            with requests.get(a["url"], stream=True, timeout=300, headers=headers) as r:
+                if start and r.status_code == 206:
+                    mode = "ab"
+                elif r.status_code in (200, 206):
+                    mode = "wb"
+                else:
+                    raise RuntimeError(f"HTTP {r.status_code}")
+                with open(part, mode) as f:
+                    for chunk in r.iter_content(1 << 20):
+                        f.write(chunk)
+        except Exception as e:                # 504 / 连接重置 / 读到一半断开
+            log(f"下载 {name} 第 {attempt}/{RETRIES} 次失败: {e}"
+                f"（已落 {_part_bytes(part) / 1e6:.1f} MB）")
+            if attempt == RETRIES:
+                raise SystemExit(f"下载 {name} 重试 {RETRIES} 次仍失败: {e}")
+            time.sleep(min(60, 5 * 2 ** (attempt - 1)))
+            continue
+        if _part_bytes(part) == size:         # 校验大小后才算成功
+            part.replace(dst)
+            return dst
+        log(f"下载 {name} 未下满（{_part_bytes(part) / 1e6:.1f} / {size / 1e6:.1f} MB），续传")
+
+    raise SystemExit(f"下载 {name} 重试 {RETRIES} 次仍未下满")
 
 
 # ---------------------------------------------------------------- 订单簿腿
