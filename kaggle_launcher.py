@@ -496,6 +496,18 @@ PROJECTS = {
              "VARIANTS": "ob,ob+cross", "HORIZON": "3", "TARGET_TPD": "15",
              "ROUNDS": "2000", "SEEDS": "42,43,44,45,46", "EXP": "F"},
     ),
+    # 诊断：同进程内并排跑两种切分口径（time/row）× ob / ob+cross，FUSE=0 只比订单簿腿
+    "h3ab": dict(
+        slug="byh850515/btcusdt-h3-fuse-cross",
+        title="BTCUSDT H3 Fuse Cross",
+        entry="morph.h3_fuse_cross",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "KLINE_SRC": "um", "WITH_BASIS": "0",
+             "VARIANTS": "ob,ob+cross", "SPLITS": "time,row", "FUSE": "0",
+             "HORIZON": "3", "TARGET_TPD": "15", "ROUNDS": "2000",
+             "SEEDS": "42,43,44,45,46", "EXP": "A"},
+    ),
     # 复核：换一组种子重跑 ob / ob+cross，确认跨域增益不是种子偶然（X* 编号）
     "h3wide2": dict(
         slug="byh850515/btcusdt-h3-wide",
