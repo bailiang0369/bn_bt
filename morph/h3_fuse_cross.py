@@ -58,6 +58,8 @@ SPLITS = [s.strip().lower() for s in
           os.environ.get("SPLITS", "time").split(",") if s.strip()]
 FUSE = int(os.environ.get("FUSE", "1"))
 HORIZON = int(os.environ.get("HORIZON", "3"))
+# K 线起点：融合要 2020 起的长历史（腿 A），只比订单簿腿时用订单簿窗口年份就够（跨域只啃 35min 预热）
+KLINE_FROM = int(os.environ.get("KLINE_FROM", "0")) or KLINE_YEARS
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44,45,46").split(",") if s.strip()]
 EXP = os.environ.get("EXP", "F?")
 W_GRID = (0.0, 0.5, 1.0, 2.0, 3.0, 5.0)
@@ -151,8 +153,9 @@ def main() -> None:
     log(f"订单簿 {n:,} 行 | T_end={ok._iso(t_tr_end)} | val 末={ok._iso(t_va_end)}"
         f" | 订单簿特征 {len(obcols)} 列 | seeds={SEEDS} | splits={SPLITS} | fuse={FUSE}")
 
-    kfeat, kcols = ok.load_kline_features(KLINE_YEARS, keep_raw=True)
-    log(f"K 线腿数据 {kfeat.height:,} 行 | 特征 {len(kcols)} 列")
+    # 跨域特征只依赖订单簿窗口（+35min 预热）的 K 线，FUSE=0 时不必拉 2020 起的全量历史
+    kfeat, kcols = ok.load_kline_features(KLINE_FROM, keep_raw=True)
+    log(f"K 线腿数据 {kfeat.height:,} 行 | 特征 {len(kcols)} 列 | 起点 {KLINE_FROM}")
 
     # ---- 跨域特征：只在订单簿窗口（+35min 预热）上算振幅，350 万行滚动纯属浪费
     lo, hi = int(ob["close_time"].min()), int(ob["close_time"].max())

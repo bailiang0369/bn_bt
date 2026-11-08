@@ -506,7 +506,7 @@ PROJECTS = {
         env={"SYMBOL": "BTCUSDT", "KLINE_SRC": "um", "WITH_BASIS": "0",
              "VARIANTS": "ob,ob+cross", "SPLITS": "time,row", "FUSE": "0",
              "HORIZON": "3", "TARGET_TPD": "15", "ROUNDS": "2000",
-             "SEEDS": "42,43,44,45,46", "EXP": "A"},
+             "KLINE_FROM": "2025", "SEEDS": "42,43,44,45,46", "EXP": "A"},
     ),
     # 复核：换一组种子重跑 ob / ob+cross，确认跨域增益不是种子偶然（X* 编号）
     "h3wide2": dict(
