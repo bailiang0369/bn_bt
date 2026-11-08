@@ -88,11 +88,14 @@ def report(tag: str, score: np.ndarray, y: np.ndarray, days: np.ndarray) -> floa
 
 # ---------------------------------------------------------------- 训练
 def fit(Xtr: np.ndarray, ytr: np.ndarray, cols: list[str],
-        Xva: np.ndarray | None = None, yva: np.ndarray | None = None) -> lgb.Booster:
+        Xva: np.ndarray | None = None, yva: np.ndarray | None = None,
+        seed: int | None = None) -> lgb.Booster:
+    """单模型训练；`seed` 显式传入时覆盖模块默认，用于多 seed 概率平均。"""
     params = dict(objective="binary", metric="auc", boosting_type="gbdt",
                   learning_rate=0.05, num_leaves=63, feature_fraction=0.9,
                   bagging_fraction=0.9, bagging_freq=1, min_child_samples=100,
-                  verbose=-1, seed=SEED, num_threads=os.cpu_count() or 4)
+                  verbose=-1, seed=SEED if seed is None else seed,
+                  num_threads=os.cpu_count() or 4)
     ds_tr = lgb.Dataset(Xtr, ytr, feature_name=cols)
     valid, callbacks = [ds_tr], [lgb.log_evaluation(200)]
     if Xva is not None and len(yva):

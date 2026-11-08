@@ -48,6 +48,8 @@ except ModuleNotFoundError:
 FEATS = os.environ.get("FEATS", "k+ob+cross").lower()
 HORIZON = int(os.environ.get("HORIZON", "3"))
 EXP = os.environ.get("EXP", "W?")
+# ≥5 个：实测订单簿腿的种子方差有几个 pp，少于 5 个判不出 ±0.5pp 的差异
+SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44,45,46").split(",") if s.strip()]
 TRAIN_FRAC, VAL_FRAC = 0.64, 0.16
 T = time.time()
 
@@ -134,27 +136,40 @@ def add_cross(df: pl.DataFrame) -> tuple[pl.DataFrame, list[str]]:
 def run_set(wide: pl.DataFrame, feats: str, kcols: list[str], obcols: list[str],
             cross_cols: list[str], tag: str) -> None:
     parts = feats.split("+")
-    cols = list(kcols) + (obcols if "ob" in parts else []) + \
-        (cross_cols if "cross" in parts else [])
-    log(f"[{tag}] 特征集 {feats}: {len(cols)} 列（K线 {len(kcols)} / "
-        f"订单簿 {len(obcols) if 'ob' in parts else 0} / "
-        f"跨域 {len(cross_cols) if 'cross' in parts else 0}）")
+    # 三个域各自独立：K 线曾无条件并入，导致 FEATS=ob 也带 63 个 K 线列（W1-W3 均被污染）
+    nk = len(kcols) if "k" in parts else 0
+    no = len(obcols) if "ob" in parts else 0
+    nx = len(cross_cols) if "cross" in parts else 0
+    cols = ((kcols if nk else []) + (obcols if no else []) + (cross_cols if nx else []))
+    log(f"[{tag}] 特征集 {feats}: {len(cols)} 列（K线 {nk} / 订单簿 {no} / 跨域 {nx}）")
 
     n = wide.height
     tr1, va1 = int(n * TRAIN_FRAC), int(n * (TRAIN_FRAC + VAL_FRAC))
     X = matrix(wide, cols)
     y = wide["target"].to_numpy().astype(int)
     days = (wide["close_time"].to_numpy() // 86_400_000)
+    log(f"[{tag}] train={tr1:,} val={va1 - tr1:,} test={n - va1:,} | seeds={SEEDS}")
 
-    model = fit(X[:tr1], y[:tr1], cols, X[tr1:va1], y[tr1:va1])
-    p_va = model.predict(X[tr1:va1], num_iteration=model.best_iteration)
-    p_te = model.predict(X[va1:], num_iteration=model.best_iteration)
-    log(f"[{tag}] best_iter={model.best_iteration} | train={tr1:,} val={va1 - tr1:,}"
-        f" test={n - va1:,}")
-    w_va = report(f"{tag} val", p_va - 0.5, y[tr1:va1], days[tr1:va1])
-    w_te = report(f"{tag} test", p_te - 0.5, y[va1:], days[va1:])
+    # 多 seed 概率平均：订单簿腿的种子方差能到几个 pp（融合实验记录 §5.2），
+    # 单 seed 下 ±0.5pp 的差异根本判不出来。
+    p_va = np.zeros(va1 - tr1)
+    p_te = np.zeros(n - va1)
+    imp = np.zeros(len(cols))
+    for seed in SEEDS:
+        model = fit(X[:tr1], y[:tr1], cols, X[tr1:va1], y[tr1:va1], seed=seed)
+        pv = model.predict(X[tr1:va1], num_iteration=model.best_iteration)
+        pt = model.predict(X[va1:], num_iteration=model.best_iteration)
+        p_va += pv / len(SEEDS)
+        p_te += pt / len(SEEDS)
+        imp += np.array(model.feature_importance("gain")) / len(SEEDS)
+        acc_va = ((pv > 0.5).astype(int) == y[tr1:va1]).mean() * 100
+        acc_te = ((pt > 0.5).astype(int) == y[va1:]).mean() * 100
+        log(f"[{tag}] seed={seed} best_iter={model.best_iteration} "
+            f"acc val={acc_va:.2f}% test={acc_te:.2f}%")
 
-    imp = np.array(model.feature_importance("gain"))
+    w_va = report(f"{tag} val(avg)", p_va - 0.5, y[tr1:va1], days[tr1:va1])
+    w_te = report(f"{tag} test(avg)", p_te - 0.5, y[va1:], days[va1:])
+
     order = np.argsort(imp)[::-1]
     log(f"[{tag}] Top15: " + ", ".join(cols[i] for i in order[:15]))
     for name, mask in (("K线", np.array([c in kcols for c in cols])),
@@ -163,7 +178,7 @@ def run_set(wide: pl.DataFrame, feats: str, kcols: list[str], obcols: list[str],
         if mask.any():
             log(f"[{tag}] 组 {name}: {int(mask.sum())} 列 gain 占比 "
                 f"{imp[mask].sum() / imp.sum() * 100:.1f}%")
-    log(f"[{tag}] SUMMARY feats={feats} cols={len(cols)} rows={n} "
+    log(f"[{tag}] SUMMARY feats={feats} cols={len(cols)} rows={n} seeds={len(SEEDS)} "
         f"val={w_va * 100:.2f}% test={w_te * 100:.2f}% (@日均{TARGET_TPD}单)")
 
 
