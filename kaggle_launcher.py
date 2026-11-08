@@ -485,6 +485,17 @@ PROJECTS = {
              "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "W",
              "SEEDS": "42,43,44,45,46"},
     ),
+    # 跨域接入两腿基线：口径照抄 twolegs，只把订单簿腿换成 ob / ob+cross 做对照
+    "h3fuse": dict(
+        slug="byh850515/btcusdt-h3-fuse-cross",
+        title="BTCUSDT H3 Fuse Cross",
+        entry="morph.h3_fuse_cross",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "KLINE_SRC": "um", "WITH_BASIS": "0",
+             "VARIANTS": "ob,ob+cross", "HORIZON": "3", "TARGET_TPD": "15",
+             "ROUNDS": "2000", "SEEDS": "42,43,44,45,46", "EXP": "F"},
+    ),
     # 复核：换一组种子重跑 ob / ob+cross，确认跨域增益不是种子偶然（X* 编号）
     "h3wide2": dict(
         slug="byh850515/btcusdt-h3-wide",
