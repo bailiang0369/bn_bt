@@ -139,23 +139,35 @@ def _save_body(body, dst: Path) -> None:
     part.replace(dst)
 
 
+ZST_CUTOVER = "2026-08-19"            # 这天前是 .parquet.zst，之后是裸 .parquet
+
+
 def fetch_hour(cl, bucket: str, day: str, hour: int) -> Path | None:
     ensure_chd()
     from s3lite import S3LiteError
     dst = RAW_DIR / day / f"{hour:02d}.parquet"
     dst.parent.mkdir(parents=True, exist_ok=True)
-    key = f"binance_futures/{day}/{hour:02d}/{SYMBOL}_orderbook.parquet"
-    try:
-        resp = cl.get_object(Bucket=bucket, Key=key)
-    except S3LiteError as e:
-        code = e.response.get("Error", {}).get("Code", str(e)[:60])
-        log(f"[miss] {day} {hour:02d}: {code}")
-        return None
-    try:
-        _save_body(resp["Body"], dst)                # Body 不可直接迭代
-    finally:
-        resp["Body"].close()
-    return dst
+    # 同 bn_hisdata 的 cutover 口径：两个后缀都试，只试裸 .parquet 会漏掉整个 7/8 月
+    suffixes = (".parquet", ".parquet.zst") if day >= ZST_CUTOVER \
+        else (".parquet.zst", ".parquet")
+    stem = f"binance_futures/{day}/{hour:02d}/{SYMBOL}_orderbook"
+    for suffix in suffixes:
+        try:
+            resp = cl.get_object(Bucket=bucket, Key=stem + suffix)
+        except S3LiteError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if code in ("NoSuchKey", "404", "NotFound") or status == 404:
+                continue                                  # 换另一个后缀
+            log(f"[err] {day} {hour:02d}: {code or str(e)[:60]}")
+            return None
+        try:
+            _save_body(resp["Body"], dst)                # Body 不可直接迭代
+        finally:
+            resp["Body"].close()
+        return dst
+    log(f"[miss] {day} {hour:02d}: 两个后缀都 404")
+    return None
 
 
 def drop(p: Path) -> None:
