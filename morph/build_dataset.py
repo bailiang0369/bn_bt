@@ -307,6 +307,12 @@ def main() -> None:
                       .agg(pl.len().alias("n")).sort("n", descending=True).head(6))
             log("订单簿缺分钟 top 月份: "
                 + ", ".join(f"{m}={n:,}" for m, n in gaps.iter_rows()))
+            days = (df.filter(pl.col("ob_f_missing") == 1)
+                      .group_by(pl.col("close_time").cast(pl.Datetime("ms"))
+                                .dt.date().alias("d"))
+                      .agg(pl.len().alias("n")).sort("n", descending=True).head(10))
+            log("订单簿缺分钟 top 日期: "
+                + ", ".join(f"{d}={n:,}" for d, n in days.iter_rows()))
         except Exception as exc:      # noqa: BLE001
             log(f"缺分钟分布统计失败（不影响产物）: {type(exc).__name__}: {exc}")
     if UPLOAD_TAG:
