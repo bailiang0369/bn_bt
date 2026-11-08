@@ -587,6 +587,19 @@ PROJECTS = {
         env={"MODE": "build", "OB_SYMBOL": "ETHUSDT",
              "START": "2025-07-01", "END": "2026-10-20", "MAX_DAYS": "0"},
     ),
+    # E*：ETH 用现役 h=3 基线同逻辑评估；挂载 ethbuild 的 output（等 build 完成后再推）
+    "h3eth": dict(
+        slug="byh850515/ethusdt-h3-baseline",
+        title="ETHUSDT H3 Baseline",
+        entry="morph.h3_eth",
+        enable_internet=True,
+        dataset_sources=[],
+        kernel_sources=["byh850515/ethusdt-vol8-ob-build"],
+        env={"SYMBOL": "ETHUSDT", "KLINE_SRC": "um", "WITH_BASIS": "0",
+             "KLINE_FROM": "2025", "SPLITS": "time,row",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TARGET_TPD": "15",
+             "EXP": "E1", "OUT": "/kaggle/working/h3_eth_pred.parquet"},
+    ),
 }
 
 
