@@ -61,7 +61,10 @@ except ModuleNotFoundError:
                                 fit, matrix, report)
 
 SYMBOL = os.environ.get("SYMBOL", "BTCUSDT")
-MONTH = os.environ.get("MONTH", "2026-09")
+# MONTHS 逗号分隔可一次跑多个月（跨月滚动窗口才连续）；MONTH 保留为单月简写
+MONTHS = [m.strip() for m in
+          os.environ.get("MONTHS", os.environ.get("MONTH", "2026-09")).split(",")
+          if m.strip()]
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44,45,46").split(",") if s.strip()]
 EXP = os.environ.get("EXP", "S?")
 OUT = os.environ.get("OUT", "")
@@ -261,13 +264,19 @@ def main() -> None:
     if not api_key:
         raise SystemExit("缺 CHD_API_KEY（本地 .codebuddy/settings.json 注入）")
 
-    y0, m0 = (int(x) for x in MONTH.split("-"))
-    d0 = ddate(y0, m0, 1)
-    d1 = ddate(y0 + (m0 == 12), m0 % 12 + 1, 1)
-    days = [d0 + timedelta(days=i) for i in range((d1 - d0).days)]
+    def month_days(ym: str) -> list[ddate]:
+        y, m = (int(x) for x in ym.split("-"))
+        a = ddate(y, m, 1)
+        b = ddate(y + (m == 12), m % 12 + 1, 1)
+        return [a + timedelta(days=i) for i in range((b - a).days)]
+
+    days = sorted({d for ym in MONTHS for d in month_days(ym)})
+    y0, m0 = (int(x) for x in min(MONTHS).split("-"))
+    y1, m1 = (int(x) for x in max(MONTHS).split("-"))
     ms0 = int(datetime(y0, m0, 1, tzinfo=timezone.utc).timestamp() * 1000)
-    ms1 = int(datetime(d1.year, d1.month, 1, tzinfo=timezone.utc).timestamp() * 1000)
-    log(f"{EXP} 月={MONTH} 天={len(days)} 种子={SEEDS} 上限={MAX_HOURS or '整月'}")
+    ms1 = int(datetime(y1 + (m1 == 12), m1 % 12 + 1, 1,
+                       tzinfo=timezone.utc).timestamp() * 1000)
+    log(f"{EXP} 月={MONTHS} 天={len(days)} 种子={SEEDS} 上限={MAX_HOURS or '全部'}")
 
     cl, bucket = make_client(api_key)
     t_cli = time.time()
@@ -345,14 +354,20 @@ def main() -> None:
     # 单变量 AUC：sb 列单独有没有信息（这一步不受样本量拖累）
     singles = []
     for c in sb_cols:
-        x = te[c].cast(pl.Float64).fill_null(float("nan")).to_numpy()
-        okm = np.isfinite(x)
-        if okm.sum() < len(yte) * 0.2 or np.unique(x[okm]).size < 10:
+        xv = va[c].cast(pl.Float64).fill_null(float("nan")).to_numpy()
+        xt = te[c].cast(pl.Float64).fill_null(float("nan")).to_numpy()
+        okv, okt = np.isfinite(xv), np.isfinite(xt)
+        if okt.sum() < len(yte) * 0.2 or okv.sum() < len(yva) * 0.2 \
+                or np.unique(xt[okt]).size < 10:
             continue
-        a = roc_auc_score(yte[okm], x[okm])
-        singles.append((c, max(a, 1 - a)))
-    singles.sort(key=lambda t: -t[1])
-    log("单变量 AUC Top10: " + ", ".join(f"{c}={a:.3f}" for c, a in singles[:10]))
+        av, at = roc_auc_score(yva[okv], xv[okv]), roc_auc_score(yte[okt], xt[okt])
+        singles.append((c, av, at))
+    singles.sort(key=lambda t: -max(t[2], 1 - t[2]))
+    log("单变量 AUC Top10(val/test): " + ", ".join(
+        f"{c}={av:.3f}/{at:.3f}" for c, av, at in singles[:10]))
+    stable = [c for c, av, at in singles
+              if (av - 0.5) * (at - 0.5) > 0 and max(at, 1 - at) > 0.51]
+    log(f"val/test 同向且 |AUC|>0.51 的列: {len(stable)}/{len(singles)}")
 
     out = {}
     for name, cols in (("base", base), ("base+sb", base + sb_cols)):

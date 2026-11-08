@@ -7,5 +7,6 @@ lightgbm
 scikit-learn
 numpy
 requests
+zstandard
 # torch 不在此处安装：Kaggle 镜像已预装 CPU 版，本地按需 `pip install torch`；
 # 若在这里 pip install 会拉 CUDA 大包（数 GB），污染 kernel 启动时间
