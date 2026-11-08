@@ -62,6 +62,7 @@ HORIZON = int(os.environ.get("HORIZON", "3"))
 KLINE_FROM = int(os.environ.get("KLINE_FROM", "0")) or KLINE_YEARS
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44,45,46").split(",") if s.strip()]
 EXP = os.environ.get("EXP", "F?")
+OUT = os.environ.get("OUT", "")          # 预测落盘路径（可选），供离线配对分析
 W_GRID = (0.0, 0.5, 1.0, 2.0, 3.0, 5.0)
 T = time.time()
 
@@ -189,6 +190,7 @@ def main() -> None:
                        matrix(k_va, kcols), k_va["target"].to_numpy().astype(int), "腿A")
 
     store: list[dict] = []          # 供配对 bootstrap：同一 split 内的变体两两比较
+    frames: list[pl.DataFrame] = []  # OUT 落盘用
     for how in SPLITS:
         ob_tr, ob_va, ob_te = split_wide(wide, how, t_tr_end, t_va_end)
         yb_tr = ob_tr["target"].to_numpy().astype(int)
@@ -228,7 +230,11 @@ def main() -> None:
 
             w_va = report(f"{tag} val 纯订单簿({v})", pB_va - 0.5, yb_va, d_va)
             w_te = report(f"{tag} test 纯订单簿({v})", pB_te - 0.5, yb_te, d_te)
-            store.append(dict(split=how, variant=v, score=pB_te, y=yb_te, days=d_te))
+            # 注意存**中心化**分数：topk_win 用 score>0 判方向，直接丢概率会变成"恒预测涨"
+            store.append(dict(split=how, variant=v, score=pB_te - 0.5, y=yb_te, days=d_te))
+            frames.append(pl.DataFrame({"split": how, "variant": v,
+                                        "close_time": ob_te["close_time"],
+                                        "target": yb_te, "score": pB_te}))
             if not FUSE:
                 log(f"[{tag}] SUMMARY split={how} variant={v} cols={len(ocols)}"
                     f" seeds={len(SEEDS)} val={w_va * 100:.2f}% test={w_te * 100:.2f}%")
@@ -250,6 +256,11 @@ def main() -> None:
             log(f"[{tag}] SUMMARY split={how} variant={v} cols={len(ocols)}"
                 f" seeds={len(SEEDS)} ob val={w_va * 100:.2f}% test={w_te * 100:.2f}% |"
                 f" fuse w={best_w} val={f_va * 100:.2f}% test={f_te * 100:.2f}%")
+
+    if OUT and frames:
+        pl.concat(frames).write_parquet(OUT)
+        log(f"预测已落盘: {OUT}（{sum(f.height for f in frames):,} 行，"
+            f"离线配对分析不必重跑）")
 
     # ---- 配对比较：同 split 内两两做按天块 bootstrap，直接给差值的 95% CI
     for how in SPLITS:
