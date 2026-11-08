@@ -103,9 +103,41 @@ def make_client(api_key: str):
     return cl, cr["bucket"]
 
 
+def _iter_body(body, size: int = 1 << 20):
+    """StreamingBody.read() 分块生成器（bn_hisdata 里的同名函数是局部函数，import 不到）。"""
+    while True:
+        chunk = body.read(size)
+        if not chunk:
+            return
+        yield chunk
+
+
+def _save_body(body, dst: Path) -> None:
+    """流式落盘；2026-08-19 前的外层 zstd 帧就地解压（无 zstandard 时直接报错）。"""
+    part = dst.with_name(dst.name + ".part")
+    it = _iter_body(body)
+    first = next(it, b"")
+    if not first:
+        raise RuntimeError("空响应体")
+    with open(part, "wb") as f:
+        if first[:4] == b"\x28\xb5\x2f\xfd":          # zstd magic
+            import zstandard as zstd
+            w = zstd.ZstdDecompressor().stream_writer(f, closefd=False)
+            try:
+                w.write(first)
+                for c in it:
+                    w.write(c)
+            finally:
+                w.close()
+        else:
+            f.write(first)
+            for c in it:
+                f.write(c)
+    part.replace(dst)
+
+
 def fetch_hour(cl, bucket: str, day: str, hour: int) -> Path | None:
     ensure_chd()
-    from download_orderbook_s3 import _write_payload
     from s3lite import S3LiteError
     dst = RAW_DIR / day / f"{hour:02d}.parquet"
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -117,7 +149,7 @@ def fetch_hour(cl, bucket: str, day: str, hour: int) -> Path | None:
         log(f"[miss] {day} {hour:02d}: {code}")
         return None
     try:
-        _write_payload(resp["Body"], dst, decompress=True)
+        _save_body(resp["Body"], dst)                # Body 不可直接迭代
     finally:
         resp["Body"].close()
     return dst
@@ -206,6 +238,10 @@ def add_derived(feat: pl.DataFrame) -> pl.DataFrame:
 
 
 def main() -> None:
+    try:                                     # Kaggle 日志按 ascii 编码，中文会变乱码
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
     api_key = os.environ.get("CHD_API_KEY")
     if not api_key:
         raise SystemExit("缺 CHD_API_KEY（本地 .codebuddy/settings.json 注入）")
