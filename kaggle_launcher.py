@@ -551,6 +551,21 @@ PROJECTS = {
              "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "X",
              "SEEDS": "142,143,144,145,146"},
     ),
+    # G*：二阶段下单过滤（不动模型/特征，只改下单口径）；val 定阈值、test 配对 bootstrap
+    # smoke：--set OB_MONTHS=2026-09 --set KLINE_FROM=2026 --set SEEDS=42 --set ROUNDS=50
+    #        --set BOOT=50 --set PLACEBO=20 --set SPLITS=time --set EXP=G0
+    "h3gate": dict(
+        slug="byh850515/btcusdt-h3-gate",
+        title="BTCUSDT H3 Gate",
+        entry="morph.h3_gate",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "KLINE_SRC": "um", "WITH_BASIS": "0",
+             "KLINE_FROM": "2025", "SPLITS": "time,row",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TARGET_TPD": "15",
+             "BOOT": "1000", "PLACEBO": "200", "MIN_COV": "0.34", "EXP": "G1",
+             "OUT": "/kaggle/working/h3_gate_pred.parquet"},
+    ),
 }
 
 
