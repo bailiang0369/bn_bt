@@ -467,8 +467,9 @@ PROJECTS = {
         entry="morph.two_legs",
         enable_internet=True,
         dataset_sources=[],
+        # 一次扫 4 个 horizon：特征/数据只取一次，每条腿按 h 重训（≈11 分钟）
         env={"SYMBOL": "BTCUSDT", "KLINE_SRC": "um", "WITH_BASIS": "0",
-             "HORIZONS": "3,15", "TARGET_TPD": "15", "ROUNDS": "2000"},
+             "HORIZONS": "3,5,10,15", "TARGET_TPD": "15", "ROUNDS": "2000"},
     ),
 }
 
