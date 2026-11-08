@@ -274,14 +274,6 @@ def main() -> None:
     miss_ob = int(df[f"ob_f_missing"].sum()) if "ob_f_missing" in df.columns else -1
     log(f"合成: {df.height:,} 行 x {df.width} 列 | K线缺失 {miss_k:,}"
         f" | 订单簿缺分钟 {miss_ob:,}")
-    if miss_ob > 0:
-        # 缺分钟按月分布：整月都有一千来条说明源端有整段空缺，不是零散噪声，
-        # 训练前要按这个比例决定是丢行还是保留（LightGBM 原生吃 null）。
-        gaps = (df.filter(pl.col("ob_f_missing") == 1)
-                  .group_by(pl.col("close_time").dt.strftime("%Y-%m").alias("m"))
-                  .agg(pl.len().alias("n")).sort("n", descending=True).head(6))
-        log("订单簿缺分钟 top 月份: "
-            + ", ".join(f"{r[0]}={r[1]:,}" for r in gaps.iter_rows()))
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     df.write_parquet(OUT, compression="zstd")
@@ -303,6 +295,20 @@ def main() -> None:
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     log(f"写出 {OUT} {OUT.stat().st_size / 1e6:.1f} MB；特征 {len(meta['feature_cols'])} 列")
     log(f"输出目录: {sorted(p.name for p in OUT.parent.glob('*.parquet'))}")
+
+    if miss_ob > 0:
+        # 放在写盘之后：诊断代码出错不能把已经算好的产物带走（这条踩过一次）。
+        # 整月都有一千来条 → 源端整段空缺，而不是零散噪声，训练前要据此决定
+        # 是丢行还是保留（LightGBM 原生吃 null）。
+        try:
+            gaps = (df.filter(pl.col("ob_f_missing") == 1)
+                      .group_by(pl.col("close_time").cast(pl.Datetime("ms"))
+                                .dt.strftime("%Y-%m").alias("m"))
+                      .agg(pl.len().alias("n")).sort("n", descending=True).head(6))
+            log("订单簿缺分钟 top 月份: "
+                + ", ".join(f"{m}={n:,}" for m, n in gaps.iter_rows()))
+        except Exception as exc:      # noqa: BLE001
+            log(f"缺分钟分布统计失败（不影响产物）: {type(exc).__name__}: {exc}")
     if UPLOAD_TAG:
         upload_release(UPLOAD_TAG, OUT)
         upload_release(UPLOAD_TAG, OUT.with_suffix(".meta.json"))
