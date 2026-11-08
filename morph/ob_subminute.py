@@ -179,9 +179,10 @@ def hour_feats(path: Path) -> pl.DataFrame:
         pl.when(pl.col("event_type") == "snapshot").then(1).otherwise(0).alias("_snap"))
     # snapshot 必须排在同一毫秒的 update 之前，否则基准量会被反算
     df = df.sort(["event_time", "_snap"], descending=[False, True])
+    # 分两步：over() 与减法写在同一表达式时，polars 会把 str 分组键也卷进减法
     df = df.with_columns(
-        (pl.col("quantity") - pl.col("quantity").shift(1).over(["side", "price"]))
-        .alias("_d"))
+        pl.col("quantity").shift(1).over(["side", "price"]).alias("_prev"))
+    df = df.with_columns((pl.col("quantity") - pl.col("_prev")).alias("_d"))
     u = df.filter((pl.col("event_type") == "update") & pl.col("_d").is_not_null())
     if u.height == 0:
         return pl.DataFrame()
@@ -302,6 +303,10 @@ def main() -> None:
     if OUT:
         feat.select("close_time", *sb_cols).write_parquet(OUT)
         log(f"特征落盘: {OUT}")
+    if MAX_HOURS and feat.height < 5000:      # smoke：只看特征，不拉 185 列也不训练
+        log("smoke 模式：特征算通了，跳过训练")
+        log("DONE")
+        return
 
     # ------------------------------------------------------------ 训练对比
     ob = ok.load_ob().filter((pl.col("close_time") >= ms0) & (pl.col("close_time") < ms1))

@@ -551,7 +551,7 @@ PROJECTS = {
 }
 
 
-def stage(project):
+def stage(project, overrides=None):
     cfg = PROJECTS[project]
     d = tempfile.mkdtemp(prefix=f"kaggle_{project}_")
     # Kaggle script kernel 只上传 code_file 一个文件，旁路文件(entry.txt)不会被传；
@@ -559,6 +559,7 @@ def stage(project):
     boot = open(BOOTSTRAP, encoding="utf-8").read()
     lines = ["import os as _os", f'_os.environ["KAGGLE_ENTRY"] = {cfg["entry"]!r}']
     env = dict(cfg.get("env", {}))
+    env.update(overrides or {})      # --set K=V：临时覆盖，不用改配置就能跑 smoke
     # 密钥只从本地 .codebuddy/settings.json 读（该目录被 .gitignore 忽略），绝不写进仓库
     for k, v in _secrets(cfg.get("secrets", [])).items():
         env[k] = v
@@ -644,9 +645,9 @@ def _logs(slug, parse=False):
                 print("  ", s)
 
 
-def run(project, push, wait, logs, parse):
+def run(project, push, wait, logs, parse, overrides=None):
     cfg = PROJECTS[project]
-    d = stage(project)
+    d = stage(project, overrides)
     print(f"[stage] {d}")
     if push:
         subprocess.run(["kaggle", "kernels", "push", "-p", d], check=True)
@@ -665,12 +666,21 @@ def main():
     ap.add_argument("--no-wait", action="store_true", help="push 后不轮询")
     ap.add_argument("--no-logs", action="store_true", help="不拉 logs")
     ap.add_argument("--parse", action="store_true", help="从 logs 中解析关键指标")
+    ap.add_argument("--set", action="append", default=[], metavar="K=V",
+                    help="临时覆盖 env（可多次），用于 smoke 而不用改配置")
     a = ap.parse_args()
+    overrides = {}
+    for kv in a.set:
+        if "=" not in kv:
+            ap.error(f"--set 需要 K=V，收到 {kv!r}")
+        k, v = kv.split("=", 1)
+        overrides[k.strip()] = v.strip()
     run(a.project,
         push=not a.no_push,
         wait=not a.no_wait,
         logs=not a.no_logs,
-        parse=a.parse)
+        parse=a.parse,
+        overrides=overrides)
 
 
 if __name__ == "__main__":
