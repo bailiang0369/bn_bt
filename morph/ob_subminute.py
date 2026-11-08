@@ -181,6 +181,8 @@ def hour_feats(path: Path) -> pl.DataFrame:
     df = pl.read_parquet(path, columns=list(need))
     if not _SCHEMA_LOGGED:
         log(f"原始 schema: {dict(schema)}")      # quantity/price 实测是 str，必须转
+        log(f"首小时行数={df.height:,} | event_type: "
+            f"{df['event_type'].value_counts().to_dicts()}")
         _SCHEMA_LOGGED = True
     df = df.with_columns(
         pl.col("quantity").cast(pl.Float64, strict=False),
@@ -315,7 +317,7 @@ def main() -> None:
     if OUT:
         feat.select("close_time", *sb_cols).write_parquet(OUT)
         log(f"特征落盘: {OUT}")
-    if MAX_HOURS and feat.height < 5000:      # smoke：只看特征，不拉 185 列也不训练
+    if MAX_HOURS and done < 3 * 24:           # smoke：只看特征，不拉 185 列也不训练
         log("smoke 模式：特征算通了，跳过训练")
         log("DONE")
         return
