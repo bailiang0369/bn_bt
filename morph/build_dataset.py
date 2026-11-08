@@ -274,6 +274,14 @@ def main() -> None:
     miss_ob = int(df[f"ob_f_missing"].sum()) if "ob_f_missing" in df.columns else -1
     log(f"合成: {df.height:,} 行 x {df.width} 列 | K线缺失 {miss_k:,}"
         f" | 订单簿缺分钟 {miss_ob:,}")
+    if miss_ob > 0:
+        # 缺分钟按月分布：整月都有一千来条说明源端有整段空缺，不是零散噪声，
+        # 训练前要按这个比例决定是丢行还是保留（LightGBM 原生吃 null）。
+        gaps = (df.filter(pl.col("ob_f_missing") == 1)
+                  .group_by(pl.col("close_time").dt.strftime("%Y-%m").alias("m"))
+                  .agg(pl.len().alias("n")).sort("n", descending=True).head(6))
+        log("订单簿缺分钟 top 月份: "
+            + ", ".join(f"{r[0]}={r[1]:,}" for r in gaps.iter_rows()))
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     df.write_parquet(OUT, compression="zstd")
