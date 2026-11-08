@@ -85,7 +85,7 @@ def _assets(tag: str) -> dict[str, dict]:
     raise SystemExit(f"取 release {tag} 重试 {RETRIES} 次仍失败: {last}")
 
 
-RETRIES = int(os.environ.get("DL_RETRIES", "6"))
+RETRIES = int(os.environ.get("DL_RETRIES", "12"))
 
 
 def _part_bytes(part: Path) -> int:
@@ -138,7 +138,8 @@ def fetch(tag: str, name: str) -> Path:
                 f"（已落 {_part_bytes(part) / 1e6:.1f} MB）")
             if attempt == RETRIES:
                 raise SystemExit(f"下载 {name} 重试 {RETRIES} 次仍失败: {e}")
-            time.sleep(min(60, 5 * 2 ** (attempt - 1)))
+            # 504 是 CDN 回源失败，前几次几乎必然失败；退避短一点，靠次数取胜
+            time.sleep(min(30, 3 * 2 ** (attempt - 1)))
             continue
         if _part_bytes(part) == size:         # 校验大小后才算成功
             part.replace(dst)
@@ -150,9 +151,19 @@ def fetch(tag: str, name: str) -> Path:
 
 # ---------------------------------------------------------------- 订单簿腿
 def load_ob(symbol: str | None = None, months: list[str] | None = None) -> pl.DataFrame:
-    """订单簿特征表（185 列，主键 close_time）。行范围天然是 2025-07~2026-10。"""
+    """订单簿特征表（185 列，主键 close_time）。行范围天然是 2025-07~2026-10。
+
+    `OB_MONTHS=auto` 时自动改用 Release 里的月份分片（每个 17~27MB）：整包 393MB 走
+    GitHub Release CDN 时 504 概率高得多，分片单文件回源快、失败也只影响一个月。
+    """
     symbol = symbol or SYMBOL
     months = OB_MONTHS if months is None else months
+    if [m.lower() for m in months] == ["auto"]:
+        prefix, suffix = f"ob_{symbol}_", ".parquet"
+        months = sorted(n[len(prefix):-len(suffix)] for n in _assets(OB_TAG)
+                        if n.startswith(prefix) and n.endswith(suffix))
+        log(f"自动分片: {len(months)} 个（{months[0]} ~ {months[-1]}）" if months
+            else "自动分片: Release 里没有月度分片，回退整包")
     if months:
         frames = [pl.read_parquet(fetch(OB_TAG, f"ob_{symbol}_{m}.parquet")) for m in months]
         df = pl.concat(frames, how="vertical_relaxed")
