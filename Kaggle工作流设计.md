@@ -1,6 +1,6 @@
 # Kaggle 跨项目工作流设计
 
-> 目标：Kaggle 只当算力，GitHub 当代码源。kernel 只放一个极小 bootstrap，运行时把 GitHub 上的多文件项目 clone 下来、装依赖、调入口。再配一个本地 launcher 编排 push / 轮询 / 拉日志 / 解析，GPU 默认关闭。
+> 目标：Kaggle 只当算力，GitHub 当代码源。kernel 只放一个极小 bootstrap，运行时把 GitHub 上的多文件项目 clone 下来、装依赖、调入口。再配一个本地 launcher 编排 push / 轮询 / 拉日志 / 解析，GPU 默认关闭（神经网络/时序模型例外，见 §9.6）。
 > GitHub 仓库（公开）：https://github.com/bailiang0369/bn_bt
 
 ## 0. 动机与现状痛点
@@ -96,7 +96,7 @@ python kaggle_launcher.py --project morph --push --wait --logs --parse
 3. 轮询 `kaggle kernels status <slug>` 至 COMPLETE/ERROR（每 30s）；
 4. `kaggle kernels logs <slug>` 拉取；
 5. `--parse` 时从日志提取关键指标（ACC=/AUC=/选择性/best_iteration 等）打印。
-约束：默认 `enable_gpu=false`，只用 CPU（faiss-cpu / lightgbm CPU）；运行由你显式触发，不会像某些 IDE 插件偷偷占 Kaggle GPU 配额。
+约束：默认 `enable_gpu=false`，只用 CPU（faiss-cpu / lightgbm CPU）；**神经网络/时序模型项目可写 `gpu=True` 开 GPU**，其余一律 CPU（完整策略见 §9.6）；运行由你显式触发，不会像某些 IDE 插件偷偷占 Kaggle GPU 配额。
 
 ## 6. GitHub 推送（已完成）
 - remote 已加 `origin` → `https://github.com/bailiang0369/bn_bt`，分支 `main`，已推送（本环境经 Git Credential Manager 可正常 push）。
@@ -168,7 +168,24 @@ $S='<slug>'; for($i=0;$i -lt 15;$i++){ $o=(kaggle kernels status $S);
   Write-Output "[$i] $o"; if($o -match 'COMPLETE|ERROR'){break}; Start-Sleep -Seconds 60 }
 ```
 
-### 9.6 算力与约定
-- **GPU 默认关闭**（`enable_gpu:false`）。未经用户明确要求不要开 GPU、不要装 `faiss-gpu`。
+### 9.6 算力约定（GPU 策略，2026-11-08 定稿）
+
+**默认一律 CPU**（`enable_gpu: false`）。只有以下分类才允许/建议开 GPU：
+
+| 项目类型 | GPU | 做法 |
+|---|---|---|
+| **神经网络 / 时序模型**：CNN、TCN、LSTM/GRU、Transformer，`morph/morph_ts.py`、`orderbook/nn_tcn.py`、`morph/kline_dl*.py` 等 | **可以开** | 在 `kaggle_launcher.py` 的 `PROJECTS` 对应项里写 `gpu=True`，`stage()` 会生成 `enable_gpu: true` |
+| 其它：LightGBM、faiss、特征工程、数据下载/处理、评估与离线分析 | **保持 CPU** | 不写 `gpu`；`faiss-cpu` 即可，**不要装 `faiss-gpu`** |
+
+补充约定：
+- `gpu=True` **只作用于该项目自己的 kernel metadata**，不是全局开关，不会影响其它项目。
+- LightGBM 不会因为 kernel 开了 GPU 就自动走 GPU（仍用 CPU），给这类项目开 GPU 只是白占
+  Kaggle 免费额度，见 `测试评估踩坑与经验总结.md` §环境。
+- 这条是**算力策略，不是实验建议**：`orderbook/nn_tcn.py` 那次用的就是 Tesla T4，
+  但「订单簿 h=3 + TCN」已有明确负结论（`融合实验记录.md` §时序），不要因为"可以开 GPU"
+  就重做该实验。
+- 除上述 NN/时序类别外，若想给别的项目开 GPU，仍需用户另行明确要求。
+
+其它约定：
 - 日志里中文可能乱码，脚本内加 `sys.stdout.reconfigure(encoding="utf-8")`。
 - Kaggle kernel 之间不共享 `/kaggle/working` 产物；要跨 kernel 复用数据得另外发布 Dataset。

@@ -5,6 +5,9 @@
 
 约定：
 - 默认 enable_gpu=false，只用 CPU（faiss-cpu / lightgbm CPU），绝不自动开 GPU；
+- GPU 例外（固定策略）：神经网络/时序模型（CNN/TCN/LSTM/Transformer、morph_ts、
+  nn_tcn、kline_dl* 等）在 PROJECTS 对应项写 gpu=True 即可开 GPU；其余项目一律 CPU，
+  不装 faiss-gpu。详见 `Kaggle工作流设计.md` §9.6；
 - 运行由你显式触发，不会像某些 IDE 插件偷偷占 Kaggle GPU 配额；
 - kernel-metadata 模板化在此，项目文件夹里不再散落 json。
 """
@@ -575,8 +578,8 @@ def stage(project, overrides=None):
         "language": "python",
         "kernel_type": "script",
         "is_private": True,
-        # GPU 默认关闭（LightGBM/faiss 都是 CPU）；CNN/时序网络项目在 PROJECTS 里
-        # 显式写 gpu=True 才开，避免无意中占掉 Kaggle GPU 配额。
+        # GPU 策略（Kaggle工作流设计.md §9.6）：默认 CPU；仅神经网络/时序模型项目
+        # 在 PROJECTS 里写 gpu=True 才开，其余（LightGBM/faiss/数据处理）一律 CPU。
         "enable_gpu": bool(cfg.get("gpu", False)),
         "enable_internet": cfg["enable_internet"],
         "dataset_sources": cfg["dataset_sources"],
