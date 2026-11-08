@@ -89,6 +89,43 @@ def train_leg(Xtr, ytr, cols, Xva, yva, tag: str) -> list:
     return models
 
 
+def topk_win(score: np.ndarray, y: np.ndarray, k: int) -> float:
+    k = min(k, len(y))
+    idx = np.argsort(-np.abs(score))[:k]
+    return float(((score[idx] > 0).astype(int) == y[idx]).mean())
+
+
+def paired_boot(a: dict, b: dict, tag: str, n_boot: int = 1000, seed: int = 7) -> None:
+    """按天块重采样，给两个模型 test 胜率差一个置信区间。
+
+    为什么必须配对：@日均15单 只有 1,440 单，胜率的绝对 SE ≈1.3pp，直接比两个百分比什么
+    都判不出来。但两个模型在同一批天、同一批样本上是强相关的，对**差值**做按天重采样，
+    方差会小一个量级 —— 这才是判断 ±0.5pp 的正确工具。
+    """
+    days = a["days"]
+    uniq = np.unique(days)
+    pos = {d: np.where(days == d)[0] for d in uniq}
+    rng = np.random.default_rng(seed)
+    plans = []
+    for _ in range(n_boot):
+        pick = rng.choice(uniq, len(uniq), replace=True)
+        plans.append((np.concatenate([pos[d] for d in pick]), len(pick)))
+
+    for name, frac in (("@日均15", None), ("@1%", 0.01), ("@5%", 0.05), ("@25%", 0.25)):
+        k_full = TARGET_TPD * len(uniq) if frac is None else int(frac * len(a["y"]))
+        la = topk_win(a["score"], a["y"], k_full)
+        lb = topk_win(b["score"], b["y"], k_full)
+        diffs = np.empty(len(plans))
+        for m, (idx, nd) in enumerate(plans):
+            k = TARGET_TPD * nd if frac is None else int(frac * len(idx))
+            diffs[m] = (topk_win(b["score"][idx], b["y"][idx], k)
+                        - topk_win(a["score"][idx], a["y"][idx], k))
+        lo, hi = np.percentile(diffs, [2.5, 97.5])
+        verdict = "显著" if lo * hi > 0 else "不显著"
+        log(f"[{tag}] {name}: {a['variant']}={la * 100:.2f}% -> {b['variant']}={lb * 100:.2f}%"
+            f" 差={diffs.mean() * 100:+.2f}pp CI95[{lo * 100:+.2f},{hi * 100:+.2f}] {verdict}")
+
+
 def split_wide(wide: pl.DataFrame, how: str, t_tr_end: int, t_va_end: int):
     """两种切分口径：time = two_legs 的 close_time 阈值；row = h3_wide 的行号。"""
     if how == "time":
@@ -148,6 +185,7 @@ def main() -> None:
         mk = train_leg(matrix(k_tr, kcols), k_tr["target"].to_numpy().astype(int), kcols,
                        matrix(k_va, kcols), k_va["target"].to_numpy().astype(int), "腿A")
 
+    store: list[dict] = []          # 供配对 bootstrap：同一 split 内的变体两两比较
     for how in SPLITS:
         ob_tr, ob_va, ob_te = split_wide(wide, how, t_tr_end, t_va_end)
         yb_tr = ob_tr["target"].to_numpy().astype(int)
@@ -187,6 +225,7 @@ def main() -> None:
 
             w_va = report(f"{tag} val 纯订单簿({v})", pB_va - 0.5, yb_va, d_va)
             w_te = report(f"{tag} test 纯订单簿({v})", pB_te - 0.5, yb_te, d_te)
+            store.append(dict(split=how, variant=v, score=pB_te, y=yb_te, days=d_te))
             if not FUSE:
                 log(f"[{tag}] SUMMARY split={how} variant={v} cols={len(ocols)}"
                     f" seeds={len(SEEDS)} val={w_va * 100:.2f}% test={w_te * 100:.2f}%")
@@ -208,6 +247,14 @@ def main() -> None:
             log(f"[{tag}] SUMMARY split={how} variant={v} cols={len(ocols)}"
                 f" seeds={len(SEEDS)} ob val={w_va * 100:.2f}% test={w_te * 100:.2f}% |"
                 f" fuse w={best_w} val={f_va * 100:.2f}% test={f_te * 100:.2f}%")
+
+    # ---- 配对比较：同 split 内两两做按天块 bootstrap，直接给差值的 95% CI
+    for how in SPLITS:
+        rows = [r for r in store if r["split"] == how]
+        for i in range(len(rows)):
+            for j in range(i + 1, len(rows)):
+                if rows[i]["variant"] != rows[j]["variant"]:
+                    paired_boot(rows[i], rows[j], f"配对[{how}]")
     log("DONE")
 
 
