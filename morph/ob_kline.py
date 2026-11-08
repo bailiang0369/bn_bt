@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
-"""取「K 线 + 订单簿特征」并拼成一张表，供 `morph/run_all.py` 训练/评估。
+"""分别取「K 线」与「订单簿」两份数据（**不合并**），供 `morph/two_legs.py` 两条腿各训一版。
 
-数据源（`bailiang0369/bn_hisdata` 的公开 Release，**不需要 token**）
-------------------------------------------------------------------
+数据源（`bailiang0369/bn_hisdata` 的公开 Release，不需要 token）
+----------------------------------------------------------------
 | tag | 资产 | 内容 |
 |---|---|---|
 | `vision-base` | `{SYMBOL}_1m_klines_{YYYY}.parquet` | 15 列原始 1m K 线：um OHLC/主动买卖量/笔数 + spot 同结构 |
 | `ob-dataset-vol8` | `ob_{SYMBOL}.parquet` | 185 列订单簿特征（纯盘口，不含 K 线），主键 `close_time` |
 
+**为什么分开取**：K 线有 2020→今天（≈350 万行），订单簿只有 2025-07→2026-10
+（≈69 万行）。拼成一张表只能按订单簿那段短窗口训练，K 线 5 年多的历史会被裁掉；
+两者的正确用法是**各自训练、在预测层融合**（结论见 `融合实验记录.md`）。
+
 口径
 ----
-1. **行范围只取订单簿覆盖的时间段**（当前 2025-07 ~ 2026-10）。K 线多读 `WARMUP_MS`
-   只为滚动特征预热（最长窗口 120 分钟），算完裁掉。
-2. **K 线 OHLC 二选一**：`KLINE_SRC=um`（合约，默认）/ `spot`（现货）。另一侧默认
-   完全不用；`WITH_BASIS=1` 才额外算一列 `k_basis_bps`，仍只保留一侧 OHLC。
-3. 主键 `close_time` 两侧同键（bn_hisdata 已把 `bucket+60000` 换算好，**不要**再 -60000）。
-
-只做取数与特征，不落任何"数据集"产物——改特征就改 `morph/kline_features.py` 重推
-kernel，中间表不落盘、不进 Release。
+- K 线 OHLC 二选一：`KLINE_SRC=um`（合约，默认）/ `spot`（现货）；`WITH_BASIS=1`
+  才额外算一列 `k_basis_bps`，仍只保留一侧 OHLC。
+- 两侧主键都是 `close_time`（bn_hisdata 已把 `bucket+60000` 换算好，**不要**再 -60000）。
 """
 from __future__ import annotations
 
@@ -32,10 +31,7 @@ import requests
 
 try:                                     # kernel 里按包导入（morph.ob_kline）
     from morph.kline_features import build_features
-except ModuleNotFoundError:              # `python morph/ob_kline.py`：直接跑脚本
-    # 脚本模式下 sys.path 里有 morph/ 目录，其中的 morph.py 是**普通模块**，
-    # 优先级高于 morph/ 命名空间包，`import morph` 会拿到它并报 "not a package"。
-    # 干脆把同目录的 kline_features.py 当顶层模块直接导入，绕开这个同名冲突。
+except ModuleNotFoundError:              # 脚本模式：morph/ 目录里的 morph.py 会抢包名
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from kline_features import build_features
 
@@ -117,38 +113,23 @@ def fetch(tag: str, name: str) -> Path:
     return dst
 
 
-# ---------------------------------------------------------------- 取数
-def load_ob(symbol: str, months: list[str]) -> pl.DataFrame:
-    """订单簿特征表（行范围的定义者）。"""
+# ---------------------------------------------------------------- 订单簿腿
+def load_ob(symbol: str | None = None, months: list[str] | None = None) -> pl.DataFrame:
+    """订单簿特征表（185 列，主键 close_time）。行范围天然是 2025-07~2026-10。"""
+    symbol = symbol or SYMBOL
+    months = OB_MONTHS if months is None else months
     if months:
         frames = [pl.read_parquet(fetch(OB_TAG, f"ob_{symbol}_{m}.parquet")) for m in months]
         df = pl.concat(frames, how="vertical_relaxed")
     else:
         df = pl.read_parquet(fetch(OB_TAG, f"ob_{symbol}.parquet"))
     df = df.unique(subset=["close_time"], keep="last").sort("close_time")
-    log(f"订单簿: {df.height:,} 行 x {df.width} 列")
+    log(f"订单簿: {df.height:,} 行 x {df.width} 列 | "
+        f"{_iso(int(df['close_time'].min()))} ~ {_iso(int(df['close_time'].max()))}")
     return df
 
 
-def _year_files(symbol: str, lo_ms: int, hi_ms: int) -> list[Path]:
-    y0 = datetime.fromtimestamp(lo_ms / 1000, tz=timezone.utc).year
-    y1 = datetime.fromtimestamp(hi_ms / 1000, tz=timezone.utc).year
-    return [fetch(KLINE_TAG, f"{symbol}_1m_klines_{y}.parquet") for y in range(y0, y1 + 1)]
-
-
-def load_klines(symbol: str, lo_ms: int, hi_ms: int) -> pl.DataFrame:
-    """只读 [lo-warmup, hi] 的 K 线；多读的点专供滚动特征预热。"""
-    files = _year_files(symbol, lo_ms - WARMUP_MS, hi_ms)
-    lf = pl.concat([pl.scan_parquet(f) for f in files])
-    df = (lf.filter((pl.col("close_time") >= lo_ms - WARMUP_MS)
-                    & (pl.col("close_time") <= hi_ms))
-          .collect()
-          .unique(subset=["close_time"], keep="last")
-          .sort("close_time"))
-    log(f"K 线: {df.height:,} 行（含 {WARMUP_MS // 60_000}min 预热）")
-    return df
-
-
+# ---------------------------------------------------------------- K 线腿
 _SRC = {
     "um": ("open", "high", "low", "close", "um_buy_vol", "um_sell_vol"),
     "spot": ("spot_open", "spot_high", "spot_low", "spot_close",
@@ -156,75 +137,53 @@ _SRC = {
 }
 
 
-def kline_table(raw: pl.DataFrame, lo_ms: int, hi_ms: int,
-                src: str, with_basis: bool) -> tuple[pl.DataFrame, list[str]]:
-    """选定一侧 OHLC -> morph.kline_features.build_features -> 裁回订单簿窗口。"""
+def load_kline_features(y0: int = 2020, symbol: str | None = None,
+                        src: str | None = None, with_basis: bool | None = None
+                        ) -> tuple[pl.DataFrame, list[str]]:
+    """K 线 2020→今天 + 63 个 K 线特征（`morph.kline_features`），**不裁窗口**。
+
+    这条腿的价值就在长历史：训练段是 2020→订单簿 train 末尾，而不是订单簿那 3 个月。
+    """
+    symbol = symbol or SYMBOL
+    src = (src or KLINE_SRC).lower()
+    basis = WITH_BASIS if with_basis is None else with_basis
     if src not in _SRC:
         raise SystemExit(f"kline_src 只能是 um / spot，收到 {src}")
-    o, h, l, c, buy, sell = _SRC[src]
 
+    assets = _assets(KLINE_TAG)
+    y1 = datetime.now(timezone.utc).year
+    names = [f"{symbol}_1m_klines_{y}.parquet" for y in range(y0, y1 + 1)]
+    have = [n for n in names if n in assets]
+    if not have:
+        raise SystemExit(f"{KLINE_TAG} 里没有 {y0}~{y1} 的 K 线资产")
+    raw = (pl.concat([pl.scan_parquet(fetch(KLINE_TAG, n)) for n in have])
+             .unique(subset=["close_time"], keep="last").collect().sort("close_time"))
+
+    o, h, l, c, buy, sell = _SRC[src]
     k = raw.select(
         pl.col("close_time"),
         pl.col(o).alias("open"), pl.col(h).alias("high"),
         pl.col(l).alias("low"), pl.col(c).alias("close"),
-        # build_features 认的是 volume / taker_buy_volume；K 线表只有主动买/卖两列
+        # build_features 认 volume / taker_buy_volume；K 线表只有主动买/卖两列
         (pl.col(buy) + pl.col(sell)).alias("volume"),
         pl.col(buy).alias("taker_buy_volume"),
-        *([] if not with_basis else
+        *([] if not basis else
           [pl.col("close").alias("_um_close"), pl.col("spot_close").alias("_spot_close")]),
     )
     out, cols = build_features(k)
-    if with_basis:
+    if basis:
         out = out.with_columns(
             ((pl.col("_um_close") - pl.col("_spot_close"))
              / pl.col("_spot_close") * 1e4).alias("k_basis_bps")
         ).drop(["_um_close", "_spot_close"])
         cols = cols + ["k_basis_bps"]
 
-    # 裁回订单簿窗口：预热行只参与滚动，不进最终表
-    out = (out.filter((pl.col("close_time") >= lo_ms) & (pl.col("close_time") <= hi_ms))
-              .select(["close_time", "close", *cols]))
-    log(f"K 线特征: {out.height:,} 行 x {len(cols)} 列（src={src}"
-        f"{', +basis' if with_basis else ''}）")
+    # 特征一律 f32：350 万行 × 63 列用 f64 是 1.8GB，训练矩阵本来也要 f32
+    out = out.select([pl.col("close_time"), pl.col("close").cast(pl.Float64),
+                      *[pl.col(c2).cast(pl.Float32) for c2 in cols]])
+    log(f"K 线: {out.height:,} 行 x {len(cols)} 特征 | "
+        f"{_iso(int(out['close_time'].min()))} ~ {_iso(int(out['close_time'].max()))}")
     return out, cols
-
-
-# ---------------------------------------------------------------- 组装
-def build(*, symbol: str | None = None, kline_src: str | None = None,
-          with_basis: bool | None = None, ob_months: list[str] | None = None,
-          start: str | None = None, end: str | None = None
-          ) -> tuple[pl.DataFrame, list[str], dict]:
-    """返回 (df, feature_cols, info)。df 列 = close_time + close + K特征 + 订单簿特征。"""
-    symbol = symbol or SYMBOL
-    src = (kline_src or KLINE_SRC).lower()
-    basis = WITH_BASIS if with_basis is None else with_basis
-    months = OB_MONTHS if ob_months is None else ob_months
-
-    ob = load_ob(symbol, months)
-    lo = int(ob["close_time"].min()) if not start else _ms(start)
-    hi = int(ob["close_time"].max()) if not end else _ms(end)
-    ob = ob.filter((pl.col("close_time") >= lo) & (pl.col("close_time") <= hi))
-    log(f"窗口: {_iso(lo)} ~ {_iso(hi)}（{ob.height:,} 行，订单簿定界）")
-
-    raw = load_klines(symbol, lo, hi)
-    kf, kcols = kline_table(raw, lo, hi, src, basis)
-
-    df = ob.join(kf, on="close_time", how="left").sort("close_time")
-    ob_cols = [c for c in ob.columns if c != "close_time"]
-    df = df.select(["close_time", "close", *kcols, *ob_cols])
-
-    miss_k = int(df["close"].null_count())
-    miss_ob = int(df["ob_f_missing"].sum()) if "ob_f_missing" in df.columns else -1
-    log(f"合成: {df.height:,} 行 x {df.width} 列 | K线缺失 {miss_k:,}"
-        f" | 订单簿缺分钟 {miss_ob:,}")
-    info = {"rows": df.height, "cols": df.width, "start": _iso(lo), "end": _iso(hi),
-            "kline_src": src, "with_basis": basis, "miss_kline": miss_k,
-            "miss_ob": miss_ob}
-    return df, [*kcols, *ob_cols], info
-
-
-def _ms(day: str) -> int:
-    return int(datetime.fromisoformat(day).replace(tzinfo=timezone.utc).timestamp() * 1000)
 
 
 def _iso(ms: int) -> str:
