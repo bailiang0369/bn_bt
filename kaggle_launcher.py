@@ -462,13 +462,13 @@ PROJECTS = {
     # 一条命令跑完：kernel 内直接拉 bn_hisdata 的 Release（K 线 + 订单簿特征）->
     # 算特征 -> 训练 -> 评估。迭代特征就改代码重推，不落"数据集"、不挂 Dataset。
     "run": dict(
-        slug="byh850515/btcusdt-ob-kline-run",
-        title="BTCUSDT OB+Kline Train Eval",
+        slug="byh850515/btcusdt-ob-kline-train-eval",
+        title="BTCUSDT OB Kline Train Eval",
         entry="morph.run_all",
         enable_internet=True,
         dataset_sources=[],
         env={"SYMBOL": "BTCUSDT", "KLINE_SRC": "um", "WITH_BASIS": "0",
-             "HORIZON": "3", "TARGET_TPD": "15", "ROUNDS": "2000"},
+             "HORIZONS": "3,5,10,15", "TARGET_TPD": "15", "ROUNDS": "2000"},
     ),
 }
 
