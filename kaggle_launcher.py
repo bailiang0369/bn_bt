@@ -481,7 +481,7 @@ PROJECTS = {
         dataset_sources=[],
         # FEATS 逗号分隔：一次内核里跑多组特征集（数据/跨域只算一次）
         # 多 seed（≥5）概率平均：单 seed 的 ±0.5pp 差异淹没在种子方差里（记录 §待办 1）
-        env={"SYMBOL": "BTCUSDT", "FEATS": "ob,ob+cross,k+ob+cross", "HORIZON": "3",
+        env={"SYMBOL": "BTCUSDT", "FEATS": "ob,ob+cross,k+ob,k+ob+cross", "HORIZON": "3",
              "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "W",
              "SEEDS": "42,43,44,45,46"},
     ),
