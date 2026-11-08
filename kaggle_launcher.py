@@ -485,6 +485,17 @@ PROJECTS = {
              "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "W",
              "SEEDS": "42,43,44,45,46"},
     ),
+    # 复核：换一组种子重跑 ob / ob+cross，确认跨域增益不是种子偶然（X* 编号）
+    "h3wide2": dict(
+        slug="byh850515/btcusdt-h3-wide",
+        title="BTCUSDT H3 Wide",
+        entry="morph.h3_wide",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "FEATS": "ob,ob+cross", "HORIZON": "3",
+             "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "X",
+             "SEEDS": "142,143,144,145,146"},
+    ),
 }
 
 
