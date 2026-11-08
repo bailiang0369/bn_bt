@@ -575,6 +575,18 @@ PROJECTS = {
         dataset_sources=["byh850515/ethusdt-merged-features"],
         env={},
     ),
+    # ETH vol8 纯盘口数据生产（185 列，与 ob_BTCUSDT.parquet 同构）；7h 长任务
+    # smoke：--set MODE=smoke --set MAX_DAYS=2（只验证 band + L1(vol8) 管线）
+    "ethbuild": dict(
+        slug="byh850515/ethusdt-vol8-ob-build",
+        title="ETHUSDT Vol8 OB Build",
+        entry="morph.eth_build",
+        enable_internet=True,
+        dataset_sources=[],
+        secrets=["CHD_API_KEY"],
+        env={"MODE": "build", "OB_SYMBOL": "ETHUSDT",
+             "START": "2025-07-01", "END": "2026-10-20", "MAX_DAYS": "0"},
+    ),
 }
 
 
@@ -608,7 +620,7 @@ def stage(project, overrides=None):
         "enable_internet": cfg["enable_internet"],
         "dataset_sources": cfg["dataset_sources"],
         "competition_sources": [],
-        "kernel_sources": [],
+        "kernel_sources": cfg.get("kernel_sources", []),
     }
     with open(os.path.join(d, "kernel-metadata.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
