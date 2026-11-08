@@ -19,6 +19,20 @@ import time
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 BOOTSTRAP = os.path.join(REPO_ROOT, "kaggle_bootstrap.py")
+SECRETS = os.path.join(REPO_ROOT, ".codebuddy", "settings.json")   # 已被 .gitignore
+
+
+def _secrets(names):
+    """从本地 settings.json 取指定密钥；缺失就跳过（对应 env 由项目自己校验）。"""
+    if not names:
+        return {}
+    try:
+        with open(SECRETS, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        print(f"[warn] 读不到 {SECRETS}，缺 {','.join(names)}")
+        return {}
+    return {k: d[k] for k in names if k in d}
 
 # 各项目的 kernel 配置（slug / title / 入口 / 数据集 / 是否需联网）
 PROJECTS = {
@@ -509,6 +523,20 @@ PROJECTS = {
              "KLINE_FROM": "2025", "SEEDS": "42,43,44,45,46", "EXP": "A",
              "OUT": "/kaggle/working/h3_ab_pred.parquet"},
     ),
+    # 亚分钟盘口动态（S*）：从原始 orderbook 事件流提取"分钟内过程"，补 185 列丢掉的信息
+    # key 从 .codebuddy/settings.json 注入，不进仓库
+    "obsub": dict(
+        slug="byh850515/btcusdt-ob-subminute",
+        title="BTCUSDT OB Subminute",
+        entry="morph.ob_subminute",
+        enable_internet=True,
+        dataset_sources=[],
+        secrets=["CHD_API_KEY"],
+        env={"SYMBOL": "BTCUSDT", "MONTH": "2026-09", "TARGET_TPD": "15",
+             "ROUNDS": "2000", "SEEDS": "42,43,44,45,46", "EXP": "S1",
+             "KLINE_FROM": "2025", "MAX_HOURS": "0",
+             "OUT": "/kaggle/working/ob_subminute.parquet"},
+    ),
     # 复核：换一组种子重跑 ob / ob+cross，确认跨域增益不是种子偶然（X* 编号）
     "h3wide2": dict(
         slug="byh850515/btcusdt-h3-wide",
@@ -530,7 +558,11 @@ def stage(project):
     # 因此把入口直接注入 bootstrap 副本首行（环境变量），确保入口随 code_file 一起上传。
     boot = open(BOOTSTRAP, encoding="utf-8").read()
     lines = ["import os as _os", f'_os.environ["KAGGLE_ENTRY"] = {cfg["entry"]!r}']
-    for k, v in cfg.get("env", {}).items():
+    env = dict(cfg.get("env", {}))
+    # 密钥只从本地 .codebuddy/settings.json 读（该目录被 .gitignore 忽略），绝不写进仓库
+    for k, v in _secrets(cfg.get("secrets", [])).items():
+        env[k] = v
+    for k, v in env.items():
         lines.append(f"_os.environ[{k!r}] = {v!r}")
     inject = "\n".join(lines) + "\n"
     with open(os.path.join(d, "kaggle_bootstrap.py"), "w", encoding="utf-8") as f:
