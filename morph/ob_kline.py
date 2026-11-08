@@ -138,11 +138,13 @@ _SRC = {
 
 
 def load_kline_features(y0: int = 2020, symbol: str | None = None,
-                        src: str | None = None, with_basis: bool | None = None
-                        ) -> tuple[pl.DataFrame, list[str]]:
+                        src: str | None = None, with_basis: bool | None = None,
+                        keep_raw: bool = False) -> tuple[pl.DataFrame, list[str]]:
     """K 线 2020→今天 + 63 个 K 线特征（`morph.kline_features`），**不裁窗口**。
 
     这条腿的价值就在长历史：训练段是 2020→订单簿 train 末尾，而不是订单簿那 3 个月。
+    `keep_raw=True` 时额外保留 `high/low` 与四列主动买卖量，供 h3 宽表算跨域特征
+    （`atk_*` / `ob_amp_obi_*`）用；这些原始列**不算特征**，不放进返回的 cols。
     """
     symbol = symbol or SYMBOL
     src = (src or KLINE_SRC).lower()
@@ -179,8 +181,12 @@ def load_kline_features(y0: int = 2020, symbol: str | None = None,
         cols = cols + ["k_basis_bps"]
 
     # 特征一律 f32：350 万行 × 63 列用 f64 是 1.8GB，训练矩阵本来也要 f32
+    extra = [] if not keep_raw else [
+        c for c in ("high", "low", "um_buy_vol", "um_sell_vol",
+                    "spot_buy_vol", "spot_sell_vol") if c in out.columns]
     out = out.select([pl.col("close_time"), pl.col("close").cast(pl.Float64),
-                      *[pl.col(c2).cast(pl.Float32) for c2 in cols]])
+                      *[pl.col(c2).cast(pl.Float32) for c2 in cols],
+                      *[pl.col(c2).cast(pl.Float64) for c2 in extra]])
     log(f"K 线: {out.height:,} 行 x {len(cols)} 特征 | "
         f"{_iso(int(out['close_time'].min()))} ~ {_iso(int(out['close_time'].max()))}")
     return out, cols

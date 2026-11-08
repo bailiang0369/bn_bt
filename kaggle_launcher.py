@@ -471,6 +471,17 @@ PROJECTS = {
         env={"SYMBOL": "BTCUSDT", "KLINE_SRC": "um", "WITH_BASIS": "0",
              "HORIZONS": "3,5,10,15", "TARGET_TPD": "15", "ROUNDS": "2000"},
     ),
+    # h=3 专用宽表尝试（K线 + 订单簿 + 跨域），**独立于 twolegs 基线**，便于回退；
+    # 每次跑完把 EXP 行抄进 `h3宽表实验记录.md`。
+    "h3wide": dict(
+        slug="byh850515/btcusdt-h3-wide",
+        title="BTCUSDT H3 Wide",
+        entry="morph.h3_wide",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "FEATS": "k+ob+cross", "HORIZON": "3",
+             "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "W1"},
+    ),
 }
 
 
@@ -493,7 +504,9 @@ def stage(project):
         "language": "python",
         "kernel_type": "script",
         "is_private": True,
-        "enable_gpu": False,
+        # GPU 默认关闭（LightGBM/faiss 都是 CPU）；CNN/时序网络项目在 PROJECTS 里
+        # 显式写 gpu=True 才开，避免无意中占掉 Kaggle GPU 配额。
+        "enable_gpu": bool(cfg.get("gpu", False)),
         "enable_internet": cfg["enable_internet"],
         "dataset_sources": cfg["dataset_sources"],
         "competition_sources": [],
