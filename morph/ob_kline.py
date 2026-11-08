@@ -72,7 +72,8 @@ def _assets(tag: str) -> dict[str, dict]:
                              headers=h, timeout=60)
             if r.status_code != 200:
                 raise RuntimeError(f"HTTP {r.status_code} {r.text[:120]}")
-            out = {a["name"]: {"size": a["size"], "url": a["browser_download_url"]}
+            out = {a["name"]: {"size": a["size"], "url": a["browser_download_url"],
+                               "id": a["id"]}          # id 走 asset API，见 fetch()
                    for a in r.json()["assets"]}
             _ASSETS[tag] = out
             log(f"release {tag}: {len(out)} 个资产")
@@ -95,9 +96,11 @@ def _part_bytes(part: Path) -> int:
 def fetch(tag: str, name: str) -> Path:
     """Range 续传下载到 /tmp 缓存；已下满（大小一致）直接复用。
 
-    GitHub Release 对 393MB 的订单簿包会偶发 **504**（网关读超时），而且一次失败就整个
-    kernel 挂掉，白等十几分钟。所以这里做成「失败 → 续传重试」：504 时 `.part` 保留，
-    下一次带 `Range` 从断点继续，退避 5/10/20/40/60s 最多 6 次。
+    两条通道交替（2026-11-08 实测）：
+    - `browser_download_url`（Release 页面直链）→ 目前 **一律 504**，网关挂了，带 UA 也一样；
+    - asset API `/releases/assets/{id}` + `Accept: application/octet-stream` → **206 正常**。
+    所以优先走 API（匿名可用，带 GH_TOKEN 则配额从 60/h 提到 5000/h），直链留作兜底。
+    失败不丢 `.part`：下一次带 `Range` 从断点续，退避 3/6/12/24/30s，最多 12 次。
     """
     a = _assets(tag).get(name)
     if a is None:
@@ -110,6 +113,13 @@ def fetch(tag: str, name: str) -> Path:
         dst.unlink()
     part = dst.with_name(dst.name + ".part")
 
+    base = {"Accept": "application/octet-stream"}
+    tok = os.environ.get("GH_TOKEN")
+    if tok:
+        base["Authorization"] = f"Bearer {tok}"
+    srcs = [("api", f"{GH_API}/repos/{REPO}/releases/assets/{a['id']}"),
+            ("直链", a["url"])]
+
     for attempt in range(1, RETRIES + 1):
         start = _part_bytes(part)
         if start > size:                      # 上次留下的垃圾，重下
@@ -118,12 +128,15 @@ def fetch(tag: str, name: str) -> Path:
         if start == size:                     # 断点已到末尾：直接落盘
             part.replace(dst)
             return dst
-        headers = {"Range": f"bytes={start}-"} if start else {}
-        log(f"下载 {name} {size / 1e6:.1f} MB"
+        ch, url = srcs[(attempt - 1) % len(srcs)]
+        headers = dict(base)
+        if start:
+            headers["Range"] = f"bytes={start}-"
+        log(f"下载 {name} {size / 1e6:.1f} MB[{ch}]"
             + (f"（续传 {start / 1e6:.1f} MB）" if start else "")
             + (f" 第 {attempt}/{RETRIES} 次" if attempt > 1 else ""))
         try:
-            with requests.get(a["url"], stream=True, timeout=300, headers=headers) as r:
+            with requests.get(url, stream=True, timeout=300, headers=headers) as r:
                 if start and r.status_code == 206:
                     mode = "ab"
                 elif r.status_code in (200, 206):
@@ -134,11 +147,10 @@ def fetch(tag: str, name: str) -> Path:
                     for chunk in r.iter_content(1 << 20):
                         f.write(chunk)
         except Exception as e:                # 504 / 连接重置 / 读到一半断开
-            log(f"下载 {name} 第 {attempt}/{RETRIES} 次失败: {e}"
+            log(f"下载 {name}[{ch}] 第 {attempt}/{RETRIES} 次失败: {e}"
                 f"（已落 {_part_bytes(part) / 1e6:.1f} MB）")
             if attempt == RETRIES:
                 raise SystemExit(f"下载 {name} 重试 {RETRIES} 次仍失败: {e}")
-            # 504 是 CDN 回源失败，前几次几乎必然失败；退避短一点，靠次数取胜
             time.sleep(min(30, 3 * 2 ** (attempt - 1)))
             continue
         if _part_bytes(part) == size:         # 校验大小后才算成功
