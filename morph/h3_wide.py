@@ -131,6 +131,42 @@ def add_cross(df: pl.DataFrame) -> tuple[pl.DataFrame, list[str]]:
 
 
 # ---------------------------------------------------------------- 主流程
+def run_set(wide: pl.DataFrame, feats: str, kcols: list[str], obcols: list[str],
+            cross_cols: list[str], tag: str) -> None:
+    parts = feats.split("+")
+    cols = list(kcols) + (obcols if "ob" in parts else []) + \
+        (cross_cols if "cross" in parts else [])
+    log(f"[{tag}] 特征集 {feats}: {len(cols)} 列（K线 {len(kcols)} / "
+        f"订单簿 {len(obcols) if 'ob' in parts else 0} / "
+        f"跨域 {len(cross_cols) if 'cross' in parts else 0}）")
+
+    n = wide.height
+    tr1, va1 = int(n * TRAIN_FRAC), int(n * (TRAIN_FRAC + VAL_FRAC))
+    X = matrix(wide, cols)
+    y = wide["target"].to_numpy().astype(int)
+    days = (wide["close_time"].to_numpy() // 86_400_000)
+
+    model = fit(X[:tr1], y[:tr1], cols, X[tr1:va1], y[tr1:va1])
+    p_va = model.predict(X[tr1:va1], num_iteration=model.best_iteration)
+    p_te = model.predict(X[va1:], num_iteration=model.best_iteration)
+    log(f"[{tag}] best_iter={model.best_iteration} | train={tr1:,} val={va1 - tr1:,}"
+        f" test={n - va1:,}")
+    w_va = report(f"{tag} val", p_va - 0.5, y[tr1:va1], days[tr1:va1])
+    w_te = report(f"{tag} test", p_te - 0.5, y[va1:], days[va1:])
+
+    imp = np.array(model.feature_importance("gain"))
+    order = np.argsort(imp)[::-1]
+    log(f"[{tag}] Top15: " + ", ".join(cols[i] for i in order[:15]))
+    for name, mask in (("K线", np.array([c in kcols for c in cols])),
+                       ("订单簿", np.array([c in obcols for c in cols])),
+                       ("跨域", np.array([c in cross_cols for c in cols]))):
+        if mask.any():
+            log(f"[{tag}] 组 {name}: {int(mask.sum())} 列 gain 占比 "
+                f"{imp[mask].sum() / imp.sum() * 100:.1f}%")
+    log(f"[{tag}] SUMMARY feats={feats} cols={len(cols)} rows={n} "
+        f"val={w_va * 100:.2f}% test={w_te * 100:.2f}% (@日均{TARGET_TPD}单)")
+
+
 def main() -> None:
     ob = ok.load_ob()
     obcols = [c for c in ob.columns if c != "close_time"]
@@ -147,45 +183,20 @@ def main() -> None:
     wide = (ob.join(kf.select("close_time", "close", *kcols, *raw_cols),
                     on="close_time", how="left")
               .join(amp, on="close_time", how="left").sort("close_time"))
+    if not raw_cols:
+        raise SystemExit("K 线里没有主动买卖量列，跨域特征无法计算（keep_raw 失效？）")
 
-    use_ob = "ob" in FEATS.split("+")
-    use_cross = "cross" in FEATS.split("+")
-    cols = list(kcols) + (obcols if use_ob else [])
-    cross_cols: list[str] = []
-    if use_cross:
-        wide, cross_cols = add_cross(wide)
-        cols += cross_cols
-    log(f"[{EXP}] 特征集 {FEATS}: {len(cols)} 列（K线 {len(kcols)} / "
-        f"订单簿 {len(obcols) if use_ob else 0} / 跨域 {len(cross_cols)}）")
+    wide, cross_cols = add_cross(wide)          # 一次算完，供多组特征集复用
+    log(f"跨域特征 {len(cross_cols)} 列: {', '.join(cross_cols)}")
 
     wide = add_target(wide, HORIZON)
     wide = wide.filter(pl.col("target").is_not_null() & pl.col("close").is_not_null())
-    n = wide.height
-    tr1, va1 = int(n * TRAIN_FRAC), int(n * (TRAIN_FRAC + VAL_FRAC))
-    log(f"[{EXP}] 可用 {n:,} 行 | train[0:{tr1}] val[{tr1}:{va1}] test[{va1}:{n}]")
+    log(f"可用 {wide.height:,} 行（订单簿定界 + 标签可用）")
 
-    X = matrix(wide, cols)
-    y = wide["target"].to_numpy().astype(int)
-    days = (wide["close_time"].to_numpy() // 86_400_000)
-
-    model = fit(X[:tr1], y[:tr1], cols, X[tr1:va1], y[tr1:va1])
-    p_va = model.predict(X[tr1:va1], num_iteration=model.best_iteration)
-    p_te = model.predict(X[va1:], num_iteration=model.best_iteration)
-    log(f"[{EXP}] best_iter={model.best_iteration}")
-    w_va = report(f"{EXP} val", p_va - 0.5, y[tr1:va1], days[tr1:va1])
-    w_te = report(f"{EXP} test", p_te - 0.5, y[va1:], days[va1:])
-
-    imp = np.array(model.feature_importance("gain"))
-    order = np.argsort(imp)[::-1]
-    log(f"[{EXP}] Top15: " + ", ".join(cols[i] for i in order[:15]))
-    for tag, mask in (("K线", np.array([c in kcols for c in cols])),
-                      ("订单簿", np.array([c in obcols for c in cols])),
-                      ("跨域", np.array([c in cross_cols for c in cols]))):
-        if mask.any():
-            log(f"[{EXP}] 组 {tag}: {int(mask.sum())} 列 gain 占比 "
-                f"{imp[mask].sum() / imp.sum() * 100:.1f}%")
-    log(f"[{EXP}] SUMMARY feats={FEATS} cols={len(cols)} rows={n} "
-        f"val={w_va * 100:.2f}% test={w_te * 100:.2f}% (@日均{TARGET_TPD}单)")
+    feats_list = [f.strip() for f in FEATS.split(",") if f.strip()]
+    for i, feats in enumerate(feats_list):
+        tag = EXP if len(feats_list) == 1 else f"{EXP}-{i + 1}"
+        run_set(wide, feats, kcols, obcols, cross_cols, tag)
     log("DONE")
 
 

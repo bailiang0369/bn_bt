@@ -479,8 +479,9 @@ PROJECTS = {
         entry="morph.h3_wide",
         enable_internet=True,
         dataset_sources=[],
-        env={"SYMBOL": "BTCUSDT", "FEATS": "k+ob+cross", "HORIZON": "3",
-             "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "W1"},
+        # FEATS 逗号分隔：一次内核里跑多组特征集（数据/跨域只算一次）
+        env={"SYMBOL": "BTCUSDT", "FEATS": "k+ob,k+ob+cross", "HORIZON": "3",
+             "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "W"},
     ),
 }
 

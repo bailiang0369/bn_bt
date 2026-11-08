@@ -162,6 +162,10 @@ def load_kline_features(y0: int = 2020, symbol: str | None = None,
              .unique(subset=["close_time"], keep="last").collect().sort("close_time"))
 
     o, h, l, c, buy, sell = _SRC[src]
+    # keep_raw 要保留**两侧**四列主动买卖量：跨域特征 atk_f_* / atk_s_* 都要用，
+    # 不能只留当前 src 那一侧。
+    vols = [v for v in ("um_buy_vol", "um_sell_vol", "spot_buy_vol", "spot_sell_vol")
+            if v in raw.columns]
     k = raw.select(
         pl.col("close_time"),
         pl.col(o).alias("open"), pl.col(h).alias("high"),
@@ -169,6 +173,7 @@ def load_kline_features(y0: int = 2020, symbol: str | None = None,
         # build_features 认 volume / taker_buy_volume；K 线表只有主动买/卖两列
         (pl.col(buy) + pl.col(sell)).alias("volume"),
         pl.col(buy).alias("taker_buy_volume"),
+        *([pl.col(v) for v in vols] if keep_raw else []),
         *([] if not basis else
           [pl.col("close").alias("_um_close"), pl.col("spot_close").alias("_spot_close")]),
     )
