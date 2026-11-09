@@ -12,7 +12,7 @@
 
 数据经 `kernel_sources` 挂载 ethbuild 的 output，不依赖 Kaggle Dataset 或 Release 上传。
 
-env: SPLITS / SEEDS / ROUNDS / TARGET_TPD / KLINE_FROM / EXP / OUT / ETH_OB
+env: SPLITS / SEEDS / ROUNDS / TARGET_TPD / KLINE_FROM / HORIZON / EXP / OUT / ETH_OB
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ except AttributeError:
     pass
 
 SPLITS = [s.strip().lower() for s in os.environ.get("SPLITS", "time,row").split(",") if s.strip()]
-HORIZON = 3
+HORIZON = int(os.environ.get("HORIZON", "3"))
 KLINE_FROM = int(os.environ.get("KLINE_FROM", "0")) or 2025
 EXP = os.environ.get("EXP", "E?")
 OUT = os.environ.get("OUT", "/kaggle/working/h3_eth_pred.parquet")
