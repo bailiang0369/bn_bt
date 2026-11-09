@@ -44,7 +44,7 @@ try:
 except AttributeError:
     pass
 
-HORIZON = 3
+HORIZON = int(os.environ.get("HORIZON", "3"))
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44,45,46").split(",") if s.strip()]
 ES_FRAC = float(os.environ.get("ES_FRAC", "0.2"))
 START_MONTH = os.environ.get("START_MONTH", "2026-01")

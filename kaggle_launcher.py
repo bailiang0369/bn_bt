@@ -623,6 +623,26 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2",
              "OUT": "/kaggle/working/wf_monthly.csv"},
     ),
+    # W2：长 horizon 的实盘口径（h=15/30/60，盘口 184 列原样，只改标签）。
+    # 目的：在换特征源之前，先确认「盘口在长 horizon 是否彻底没戏」
+    "wf15": dict(
+        slug="byh850515/btcusdt-wf-h15", title="BTCUSDT WF H15", entry="morph.wf_eval",
+        enable_internet=True, dataset_sources=[],
+        env={"HORIZON": "15", "SEEDS": "42", "ROUNDS": "2000", "KLINE_FROM": "2025",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2"},
+    ),
+    "wf30": dict(
+        slug="byh850515/btcusdt-wf-h30", title="BTCUSDT WF H30", entry="morph.wf_eval",
+        enable_internet=True, dataset_sources=[],
+        env={"HORIZON": "30", "SEEDS": "42", "ROUNDS": "2000", "KLINE_FROM": "2025",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2"},
+    ),
+    "wf60": dict(
+        slug="byh850515/btcusdt-wf-h60", title="BTCUSDT WF H60", entry="morph.wf_eval",
+        enable_internet=True, dataset_sources=[],
+        env={"HORIZON": "60", "SEEDS": "42", "ROUNDS": "2000", "KLINE_FROM": "2025",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
