@@ -689,6 +689,17 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "OUT": "/kaggle/working/kline_long_h30_5s.csv"},
     ),
+    # L2：h15 / h30 / 融合三配置，按实盘验收判据（总体≥63/65、滚动100期≥50、月度≥50）
+    "klinefuse": dict(
+        slug="byh850515/btcusdt-kline-fuse-h15-h30",
+        title="BTCUSDT Kline Fuse H15 H30",
+        entry="morph.kline_fuse",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "KLINE_FROM": "2020",
+             "WIN_DAYS": "730", "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TOPN": "15", "OUT": "/kaggle/working/kline_fuse.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
