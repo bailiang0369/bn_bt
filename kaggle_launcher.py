@@ -643,6 +643,18 @@ PROJECTS = {
         env={"HORIZON": "60", "SEEDS": "42", "ROUNDS": "2000", "KLINE_FROM": "2025",
              "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2"},
     ),
+    # L1：长周期（15/30/60）K 线特征 + walk-forward。长周期不用盘口（W2 已判死）。
+    # 特征：多尺度动量/均线/波动结构/量价/位置/效率比/季节性/基差，约 55 列
+    "klinelong": dict(
+        slug="byh850515/btcusdt-kline-long-h15",
+        title="BTCUSDT Kline Long H15",
+        entry="morph.kline_long",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"HORIZON": "15", "SEEDS": "42", "ROUNDS": "2000", "KLINE_FROM": "2020",
+             "WIN_DAYS": "730", "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "OUT": "/kaggle/working/kline_long_h15.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
