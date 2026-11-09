@@ -600,6 +600,18 @@ PROJECTS = {
              "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TARGET_TPD": "15",
              "EXP": "E1", "OUT": "/kaggle/working/h3_eth_pred.parquet"},
     ),
+    # W1：walk-forward 逐月重训（实盘口径）；回答固定划分那 6.7pp 差距里
+    # 有多少是「模型陈旧」、多少是「时段差异」
+    "wfeval": dict(
+        slug="byh850515/btcusdt-h3-walkforward",
+        title="BTCUSDT H3 Walk Forward",
+        entry="morph.wf_eval",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "KLINE_FROM": "2025",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2",
+             "OUT": "/kaggle/working/wf_monthly.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
