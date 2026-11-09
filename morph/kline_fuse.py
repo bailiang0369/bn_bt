@@ -177,8 +177,8 @@ def main() -> None:
         y = np.concatenate([x[1] for x in store[key]]).astype(np.int8)
         d = np.concatenate([x[2] for x in store[key]])
         c = np.concatenate([x[3] for x in store[key]])
-        win, dd, _ = daily_topn_seq(p - .5, y, c, d, TOPN)
-        rows.append(report(key, win, dd, c))
+        win, dd, tt = daily_topn_seq(p - .5, y, c, d, TOPN)
+        rows.append(report(key, win, dd, tt))
     if OUT:
         pl.DataFrame(rows).write_csv(OUT)
         log(f"汇总已落盘: {OUT}")

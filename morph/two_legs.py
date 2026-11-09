@@ -106,11 +106,19 @@ def fit(Xtr: np.ndarray, ytr: np.ndarray, cols: list[str],
 
 
 def add_target(df: pl.DataFrame, h: int) -> pl.DataFrame:
-    """t+h 收盘方向；连接键 `close_time - h*60_000`（写成 + 会变成过去方向）。"""
+    """t+h 收盘方向；连接键 `close_time - h*60_000`（写成 + 会变成过去方向）。
+
+    注意：中间列用完即删。否则对同一 df 连续调用两次（h15/h30）时，polars 会把
+    第二次的列改成 `_cf_right`，而 `with_columns` 仍读到第一次的旧列，导致两个
+    horizon 的 target 完全相同。
+    """
+    if "_fut_close" in df.columns:
+        df = df.drop("_fut_close")
     fut = df.select((pl.col("close_time") - h * 60_000).alias("close_time"),
-                    pl.col("close").alias("_cf"))
+                    pl.col("close").alias("_fut_close"))
     df = df.join(fut, on="close_time", how="left")
-    return df.with_columns((pl.col("_cf") > pl.col("close")).cast(pl.Int8).alias("target"))
+    return (df.with_columns((pl.col("_fut_close") > pl.col("close")).cast(pl.Int8).alias("target"))
+              .drop("_fut_close"))
 
 
 def matrix(df: pl.DataFrame, cols: list[str]) -> np.ndarray:
