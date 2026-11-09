@@ -60,13 +60,32 @@ def log(msg: str) -> None:
 
 
 # ---------------------------------------------------------------- 判据
-def daily_topn_seq(score, y, ct, days, n=TOPN):
-    """每天按 |score| 取前 n 单，按时间顺序返回 (是否获胜, 所属日, 时间, 分数, 标签)。"""
+def daily_topn_seq(score, y, ct, days, n=TOPN, hour_cap=None):
+    """每天按 |score| 取前 n 单，按时间顺序返回 (是否获胜, 所属日, 时间, 分数, 标签)。
+
+    hour_cap：每 UTC 小时最多取几单。**覆盖率不变**——始终凑满 n 单，只是把
+    被某个时段垄断的名额让给其他时段的高分单（从当天全量候选里补），不是砍单。
+    """
     win, dd, tt, ss, yy = [], [], [], [], []
     for d in np.unique(days):
         idx = np.where(days == d)[0]
         k = min(n, len(idx))
-        pick = idx[np.argsort(-np.abs(score[idx]))[:k]]
+        order = idx[np.argsort(-np.abs(score[idx]))]
+        if hour_cap:
+            cnt, chosen = {}, []
+            for i in order:
+                h = int(ct[i] // 3_600_000 % 24)
+                if cnt.get(h, 0) < hour_cap:
+                    chosen.append(i)
+                    cnt[h] = cnt.get(h, 0) + 1
+                if len(chosen) >= k:
+                    break
+            if len(chosen) < k:          # 槽位不够时按分数补足，绝不减少单量
+                used = set(chosen)
+                chosen += [int(i) for i in order if int(i) not in used][:k - len(chosen)]
+            pick = np.asarray(chosen, dtype=order.dtype)
+        else:
+            pick = order[:k]
         pick = pick[np.argsort(ct[pick])]
         win.append((score[pick] > 0).astype(int) == y[pick])
         dd.append(np.full(k, d))
@@ -172,6 +191,7 @@ def report(name, win, days, ct):
         r100d = np.array([np.nan])
     log(f"--- {name} | n={n:,} 总体={tot * 100:.2f}%(SE {se * 100:.2f}pp)"
         f" | 门槛63%:{'过' if tot >= .63 else '未过'} 稳妥65%:{'过' if tot >= .65 else '未过'}")
+    log(f"    覆盖率: {len(np.unique(days))} 天 / 平均 {n / len(np.unique(days)):.2f} 单每天")
     log(f"    月度: min={mv.min() * 100:.2f}% p10={np.quantile(mv, .1) * 100:.2f}%"
         f" median={np.median(mv) * 100:.2f}% max={mv.max() * 100:.2f}%"
         f" std={mv.std() * 100:.2f}pp | 低于50%的月={int((mv < .5).sum())}/{len(mv)}"
@@ -236,14 +256,18 @@ def main() -> None:
     log("")
     ret, rv, rng = day_bg(np.concatenate(px_ct), np.concatenate(px_c))
     log(f"行情背景就绪：{len(ret)} 天 | 日均|收益|={np.mean([abs(v) for v in ret.values()]) * 100:.2f}%")
+    # hour_cap 变体复用 B_fuse 的预测与标签：只改「选哪 15 单」，覆盖率恒定不变
+    specs = [("A_h15", "A_h15", None), ("B_fuse", "B_fuse", None),
+             ("C_h30", "C_h30", None),
+             ("D_fuse_cap2", "B_fuse", 2), ("E_fuse_cap1", "B_fuse", 1)]
     rows, diag, trades = [], [], []
-    for key in ("A_h15", "B_fuse", "C_h30"):
-        p = np.concatenate([x[0] for x in store[key]])
-        y = np.concatenate([x[1] for x in store[key]]).astype(np.int8)
-        d = np.concatenate([x[2] for x in store[key]])
-        c = np.concatenate([x[3] for x in store[key]])
+    for key, src, cap in specs:
+        p = np.concatenate([x[0] for x in store[src]])
+        y = np.concatenate([x[1] for x in store[src]]).astype(np.int8)
+        d = np.concatenate([x[2] for x in store[src]])
+        c = np.concatenate([x[3] for x in store[src]])
         s = p - .5
-        win, dd, tt, ss, yy = daily_topn_seq(s, y, c, d, TOPN)
+        win, dd, tt, ss, yy = daily_topn_seq(s, y, c, d, TOPN, hour_cap=cap)
         rows.append(report(key, win, dd, tt))
         diag += diagnose(key, win, dd, tt, ss, ret, rv, rng)
         trades.append(pl.DataFrame(dict(cfg=key, ct=tt, day=dd, score=ss, y=yy, win=win)))
@@ -252,7 +276,15 @@ def main() -> None:
         base = str(Path(OUT).with_suffix(""))
         pl.concat(trades).write_csv(base + "_trades.csv")
         pl.DataFrame(diag).write_csv(base + "_diag.csv")
-        log(f"汇总已落盘: {OUT} / {base}_trades.csv / {base}_diag.csv")
+        # 全量 OOS 预测：以后换任何选单规则都能离线回放，不必重训
+        pl.DataFrame(dict(
+            ct=np.concatenate([x[3] for x in store["A_h15"]]),
+            p_h15=np.concatenate([x[0] for x in store["A_h15"]]),
+            p_h30=np.concatenate([x[0] for x in store["C_h30"]]),
+            t15=np.concatenate([x[1] for x in store["A_h15"]]),
+            t30=np.concatenate([x[1] for x in store["C_h30"]]),
+        )).write_parquet(base + "_scores.parquet")
+        log(f"汇总已落盘: {OUT} / {base}_trades.csv / {base}_diag.csv / {base}_scores.parquet")
     log("DONE")
 
 
