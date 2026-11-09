@@ -655,6 +655,29 @@ PROJECTS = {
              "WIN_DAYS": "730", "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "OUT": "/kaggle/working/kline_long_h15.csv"},
     ),
+    # L1b：同一套长周期特征，5 seed（平滑概率）+ h=30（趋势更持久？）
+    "klinelong5": dict(
+        slug="byh850515/btcusdt-kline-long-h15-5seed",
+        title="BTCUSDT Kline Long H15 5seed",
+        entry="morph.kline_long",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"HORIZON": "15", "SEEDS": "42,43,44,45,46", "ROUNDS": "2000",
+             "KLINE_FROM": "2020", "WIN_DAYS": "730",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "OUT": "/kaggle/working/kline_long_h15_5s.csv"},
+    ),
+    "klinelong30": dict(
+        slug="byh850515/btcusdt-kline-long-h30",
+        title="BTCUSDT Kline Long H30",
+        entry="morph.kline_long",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"HORIZON": "30", "SEEDS": "42", "ROUNDS": "2000",
+             "KLINE_FROM": "2020", "WIN_DAYS": "730",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "OUT": "/kaggle/working/kline_long_h30.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
