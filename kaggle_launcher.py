@@ -600,6 +600,18 @@ PROJECTS = {
              "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TARGET_TPD": "15",
              "EXP": "E1", "OUT": "/kaggle/working/h3_eth_pred.parquet"},
     ),
+    # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
+    # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
+    "ethdiag": dict(
+        slug="byh850515/eth-vs-btc-h3-diag",
+        title="ETH vs BTC H3 Diagnostic",
+        entry="morph.eth_diag",
+        enable_internet=True,
+        dataset_sources=[],
+        kernel_sources=["byh850515/ethusdt-vol8-ob-build"],
+        env={"SEED": "42", "ROUNDS": "400", "TARGET_TPD": "15",
+             "OUT": "/kaggle/working/eth_diag.json"},
+    ),
 }
 
 
