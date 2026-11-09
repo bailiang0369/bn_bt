@@ -61,8 +61,8 @@ def log(msg: str) -> None:
 
 # ---------------------------------------------------------------- 判据
 def daily_topn_seq(score, y, ct, days, n=TOPN):
-    """每天按 |score| 取前 n 单，按时间顺序返回 (是否获胜, 盈亏序列所属日, 时间)。"""
-    win, dd, tt = [], [], []
+    """每天按 |score| 取前 n 单，按时间顺序返回 (是否获胜, 所属日, 时间, 分数, 标签)。"""
+    win, dd, tt, ss, yy = [], [], [], [], []
     for d in np.unique(days):
         idx = np.where(days == d)[0]
         k = min(n, len(idx))
@@ -71,7 +71,10 @@ def daily_topn_seq(score, y, ct, days, n=TOPN):
         win.append((score[pick] > 0).astype(int) == y[pick])
         dd.append(np.full(k, d))
         tt.append(ct[pick])
-    return np.concatenate(win).astype(np.int8), np.concatenate(dd), np.concatenate(tt)
+        ss.append(score[pick])
+        yy.append(y[pick])
+    return (np.concatenate(win).astype(np.int8), np.concatenate(dd),
+            np.concatenate(tt), np.concatenate(ss), np.concatenate(yy))
 
 
 def roll_rate(seq, w):
@@ -94,6 +97,63 @@ def monthly_rate(win, ct_ms):
 
 def daily_rates(win, days):
     return {int(d): float(win[days == d].mean()) for d in np.unique(days)}
+
+
+# ---------------------------------------------------------------- 失效段诊断
+def _dstr(day: int) -> str:
+    return str(np.datetime64(int(day), "D"))
+
+
+def day_bg(ct, close):
+    """逐日行情背景：log 收益 / 日内 RV / 日内振幅（判定失效是否与行情有关）。"""
+    d = (ct // 86_400_000).astype(np.int64)
+    ret, rv, rng = {}, {}, {}
+    for u in np.unique(d):
+        c = close[d == u]
+        k = int(u)
+        if len(c) > 2:
+            lr = np.diff(np.log(c))
+            ret[k], rv[k], rng[k] = float(lr.sum()), float(lr.std()), float(np.log(c.max() / c.min()))
+        else:
+            ret[k] = rv[k] = rng[k] = 0.0
+    return ret, rv, rng
+
+
+def diagnose(name, win, dd, tt, ss, ret, rv, rng, w=100, k=8):
+    """滚动 w 单最差窗口（去重叠）：起止日、窗口内行情、下单小时分布、置信度。"""
+    r = roll_rate(win, w)
+    picked: list[int] = []
+    for o in np.argsort(r):
+        o = int(o)
+        if all(abs(o - q) >= w for q in picked):
+            picked.append(o)
+        if len(picked) >= k:
+            break
+    log(f"  [{name}] 滚动{w}单 最差 {len(picked)} 段：")
+    out = []
+    for o in sorted(picked):
+        sw, sd, st = win[o:o + w], dd[o:o + w], tt[o:o + w]
+        d0, d1 = int(sd.min()), int(sd.max())
+        days = list(range(d0, d1 + 1))
+        rd = sum(ret.get(x, 0.0) for x in days) * 100
+        rvd = float(np.mean([rv.get(x, 0.0) for x in days])) * 100
+        rgd = float(np.mean([rng.get(x, 0.0) for x in days])) * 100
+        hr = (st // 3_600_000 % 24).astype(int)
+        cnt = np.bincount(hr, minlength=24)
+        top = ",".join(f"{h:02d}h:{cnt[h]}" for h in np.argsort(-cnt)[:4])
+        log(f"    {_dstr(d0)}~{_dstr(d1)}（{len(np.unique(sd))}天）胜率={sw.mean() * 100:.1f}%"
+            f" | BTC={rd:+.2f}% 日均RV={rvd:.2f}% 振幅={rgd:.2f}%"
+            f" | 均|s|={np.abs(ss[o:o + w]).mean():.3f} | 小时={top}")
+        out.append(dict(cfg=name, d0=_dstr(d0), d1=_dstr(d1), n=int(w),
+                        rate=float(sw.mean()), btc=rd / 100, rv=rvd / 100,
+                        rng=rgd / 100, abs_s=float(np.abs(ss[o:o + w]).mean())))
+    # 小时维度整体胜率（看是否某时段系统性失效）
+    hr_all = (tt // 3_600_000 % 24).astype(int)
+    hrs = [(h, float(win[hr_all == h].mean()), int((hr_all == h).sum()))
+           for h in range(24) if (hr_all == h).sum() >= 30]
+    worst = sorted(hrs, key=lambda x: x[1])[:4]
+    log(f"  [{name}] 小时胜率最差: " + ", ".join(f"{h:02d}h={r * 100:.1f}%(n={n})" for h, r, n in worst))
+    return out
 
 
 def report(name, win, days, ct):
@@ -142,6 +202,7 @@ def main() -> None:
     log(f"窗口 {len(months)} 个（{months[0]}~{months[-1]}）| seeds={len(SEEDS)} | topn={TOPN}")
 
     store = {"A_h15": [], "B_fuse": [], "C_h30": []}
+    px_ct, px_c = [], []
     for m in months:
         m_start = int(dt.datetime.strptime(m + "-01", "%Y-%m-%d")
                       .replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
@@ -163,6 +224,8 @@ def main() -> None:
             ps[tag] = np.mean(arr, axis=0)
         days = ge.day_id(te["close_time"].to_numpy())
         ct = te["close_time"].to_numpy()
+        px_ct.append(ct)
+        px_c.append(te["close"].to_numpy())
         store["A_h15"].append((ps["h15"], te["t15"].to_numpy(), days, ct))
         store["B_fuse"].append(((ps["h15"] + ps["h30"]) / 2, te["t15"].to_numpy(), days, ct))
         store["C_h30"].append((ps["h30"], te["t30"].to_numpy(), days, ct))
@@ -171,17 +234,25 @@ def main() -> None:
             f" h30={roc_auc_score(te['t30'].to_numpy(), ps['h30']):.4f}")
 
     log("")
-    rows = []
+    ret, rv, rng = day_bg(np.concatenate(px_ct), np.concatenate(px_c))
+    log(f"行情背景就绪：{len(ret)} 天 | 日均|收益|={np.mean([abs(v) for v in ret.values()]) * 100:.2f}%")
+    rows, diag, trades = [], [], []
     for key in ("A_h15", "B_fuse", "C_h30"):
         p = np.concatenate([x[0] for x in store[key]])
         y = np.concatenate([x[1] for x in store[key]]).astype(np.int8)
         d = np.concatenate([x[2] for x in store[key]])
         c = np.concatenate([x[3] for x in store[key]])
-        win, dd, tt = daily_topn_seq(p - .5, y, c, d, TOPN)
+        s = p - .5
+        win, dd, tt, ss, yy = daily_topn_seq(s, y, c, d, TOPN)
         rows.append(report(key, win, dd, tt))
+        diag += diagnose(key, win, dd, tt, ss, ret, rv, rng)
+        trades.append(pl.DataFrame(dict(cfg=key, ct=tt, day=dd, score=ss, y=yy, win=win)))
     if OUT:
         pl.DataFrame(rows).write_csv(OUT)
-        log(f"汇总已落盘: {OUT}")
+        base = str(Path(OUT).with_suffix(""))
+        pl.concat(trades).write_csv(base + "_trades.csv")
+        pl.DataFrame(diag).write_csv(base + "_diag.csv")
+        log(f"汇总已落盘: {OUT} / {base}_trades.csv / {base}_diag.csv")
     log("DONE")
 
 
