@@ -612,6 +612,17 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2",
              "OUT": "/kaggle/working/wf_monthly.csv"},
     ),
+    # 同一逻辑的 5 seed 版（原 slug 推 v2 时报 409，换 slug 建新 kernel）
+    "wfeval5": dict(
+        slug="byh850515/btcusdt-h3-walkforward-5seed",
+        title="BTCUSDT H3 Walk Forward 5seed",
+        entry="morph.wf_eval",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "KLINE_FROM": "2025",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2",
+             "OUT": "/kaggle/working/wf_monthly.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
