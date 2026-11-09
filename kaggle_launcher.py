@@ -678,6 +678,17 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "OUT": "/kaggle/working/kline_long_h30.csv"},
     ),
+    "klinelong30s": dict(
+        slug="byh850515/btcusdt-kline-long-h30-5seed",
+        title="BTCUSDT Kline Long H30 5seed",
+        entry="morph.kline_long",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"HORIZON": "30", "SEEDS": "42,43,44,45,46", "ROUNDS": "2000",
+             "KLINE_FROM": "2020", "WIN_DAYS": "730",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "OUT": "/kaggle/working/kline_long_h30_5s.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
