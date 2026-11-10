@@ -8,7 +8,17 @@
 3. 周线 stoch 长期偏在 0 轴下方 → 固定阈值 50 无意义，应使用**滚动经验分位**。
 
 因此本模块不放「CVD 水平值」「stoch 绝对值」这类量，只放相对自身历史形态的偏离。
-每个特征必须过 validate.py 的因果性 / 跨段 IC / FDR / 去相关四关才放行。
+每个特征必须过 validate.py 的 7 关才放行。
+
+**2026-11-11 全历史验证结论**（3,603,427 行 / 716,651 评估点 / 3 段 / h=3 与 h=15）：
+- 放行 3/12：`cvdu_break_60_1440`、`cvdu_rebound5`、`cvds_rebound5`
+  （IC 均为负，与已有 lg_* 最大 |r| 分别 0.424 / 0.447 / 0.372）
+- 淘汰（换皮）：`ret5_z`(r=0.89 vs lg_ret5)、`stoch_rank7d`(0.98)、`stoch_z7d`(1.00)
+- 淘汰（效应太弱）：`div_rebound`(方向符合观察但档差仅 1.4~2.1pp)、
+  `price_cvd_newlow_div`、三个 slope_z/corr、两个负控
+- 「滚动经验分位优于 z-score」不成立：rank 与 z 几乎等价且都只是原始 stoch 的换皮
+- 放行 ≠ 能提升模型尾部：单变量 IC 显著不代表 LightGBM 的 top1% 会改善，
+  下一步必须做增量价值验证（同段 A/B，多段配对）。
 
 约定：fn(df) -> np.ndarray[float32]，与 df 等长，前若干根为 NaN（冷启动）。
 """
