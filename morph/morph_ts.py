@@ -51,7 +51,10 @@ def find_kline(path=None):
     if path:
         print(f"[kline] {path}")
         return pl.read_parquet(path).sort("close_time")
-    names = ["btcusdt_1m.parquet", "btc_1m.parquet", "BTCUSDT_1m.parquet"]
+    # full 版含 volume / taker_buy_volume，build_channels 会自动加 vol+cvd 两通道；
+    # 必须优先选它，否则会误用 OHLC-only 那份（v1 就是这么只有 px/st 两通道的）。
+    names = ["btcusdt_1m_full.parquet", "btcusdt_1m.parquet",
+             "btc_1m.parquet", "BTCUSDT_1m.parquet"]
     hits = []
     on_kaggle = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE")) or os.path.isdir("/kaggle/input")
     for n in names:
@@ -64,8 +67,10 @@ def find_kline(path=None):
     hits = sorted(set(hits))
     if not hits:
         raise FileNotFoundError("找不到 1m K 线 parquet，用 --kline-file 指定，或 --synthetic 烟测")
-    print(f"[kline] {hits[0]}")
-    return pl.read_parquet(hits[0]).sort("close_time")
+    full = [p for p in hits if p.endswith("btcusdt_1m_full.parquet")]
+    pick = full[0] if full else hits[0]
+    print(f"[kline] {pick}  candidates={len(hits)}")
+    return pl.read_parquet(pick).sort("close_time")
 
 
 def _boxcar(x, k):
@@ -248,7 +253,7 @@ def train_one(chans, norm, y, tr, va, te, a, seed):
     dl_va = DataLoader(ds_va, batch_size=a.batch * 4, shuffle=False, num_workers=a.workers)
     dl_te = DataLoader(ds_te, batch_size=a.batch * 4, shuffle=False, num_workers=a.workers)
 
-    model = build_model(chans.shape[0], norm)
+    model = build_model(chans.shape[0], norm, drop=a.drop)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, a.epochs))
     lossf = nn.BCEWithLogitsLoss()
@@ -317,8 +322,11 @@ def main():
     ap.add_argument("--patience", type=int, default=2)
     ap.add_argument("--batch", type=int, default=1024)
     ap.add_argument("--lr", type=float, default=2e-3)
+    ap.add_argument("--drop", type=float, default=0.2, help="head dropout，v1=0.2（欠拟合可降到 0.05）")
     ap.add_argument("--seeds", default="42,43")
     ap.add_argument("--train-stride", type=int, default=8, help="训练集抽样步长（CPU 时间控制）")
+    ap.add_argument("--max-ct", type=int, default=0,
+                    help="截断到该 close_time(ms)，用于与 v1 固定同一数据末尾、严格可比")
     ap.add_argument("--test-days", type=int, default=92)
     ap.add_argument("--val-days", type=int, default=30)
     ap.add_argument("--workers", type=int, default=0 if os.name == "nt" else 2)
@@ -327,7 +335,9 @@ def main():
     ap.add_argument("--rows", type=int, default=0, help="只取前 N 行（烟测）")
     ap.add_argument("--out", default=os.environ.get("KAGGLE_MORPH_TS_OUT"),
                     help="预测 parquet（split/close_time/target/pred）")
-    a = ap.parse_args()
+    # Kaggle 用 env 传超参（launcher 的 env 只能设环境变量，不能改 CLI）
+    extra = os.environ.get("MORPH_TS_ARGS", "").split()
+    a = ap.parse_args(list(sys.argv[1:]) + extra)
 
     try:
         import torch  # noqa: F401
@@ -338,6 +348,9 @@ def main():
     df = synthetic_klines(a.rows or 300_000) if a.synthetic else find_kline(a.kline_file)
     if a.rows:
         df = df.head(a.rows)
+    if a.max_ct:
+        df = df.filter(pl.col("close_time") <= a.max_ct)
+        print(f"[kline] 已截断到 close_time <= {a.max_ct}（与 v1 同数据末尾）")
     df = add_target(df, a.horizon).filter(pl.col("target").is_not_null())
     print(f"[kline] rows={df.height} horizon={a.horizon}min window={a.window}")
 

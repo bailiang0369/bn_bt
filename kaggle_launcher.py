@@ -312,6 +312,36 @@ PROJECTS = {
         env={"KAGGLE_HORIZON": "15",
              "KAGGLE_MORPH_TS_OUT": "/kaggle/working/morph_ts_15m.parquet"},
     ),
+    # v2 单变量对照：v1 只用了 px/st 两通道（误挂 OHLC-only 数据）且明显欠拟合
+    # (train loss 0.6911→0.6902、早停第 3 轮)。改挂 btcusdt-1m-full-2020
+    # (含 volume/taker_buy_volume) 后 build_channels 自动补 vol+cvd 两通道。
+    # --max-ct 把数据末尾钉到 v1 的 2026-09-30，train/val/test 切分严格一致。
+    "morph15v2a": dict(
+        slug="byh850515/btcusdt-15min-morph-ts-v2a-channels",
+        title="BTCUSDT 15min Morph TS v2a Channels",
+        entry="morph.morph_ts",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"KAGGLE_HORIZON": "15",
+             "KAGGLE_MORPH_TS_OUT": "/kaggle/working/morph_ts_v2a.parquet",
+             # 与 v1 完全相同的超参，唯一差异 = 多两个通道
+             "MORPH_TS_ARGS": "--max-ct 1790811900000 --seeds 42,43 --epochs 6 "
+                              "--patience 2 --lr 0.002 --drop 0.2 --train-stride 8 "
+                              "--test-days 92 --val-days 30 --window 120"},
+    ),
+    "morph15v2b": dict(
+        slug="byh850515/btcusdt-15min-morph-ts-v2b-fit",
+        title="BTCUSDT 15min Morph TS v2b Fit",
+        entry="morph.morph_ts",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
+        env={"KAGGLE_HORIZON": "15",
+             "KAGGLE_MORPH_TS_OUT": "/kaggle/working/morph_ts_v2b.parquet",
+             # 加通道 + 修欠拟合：降 lr、放宽 dropout、样本加倍、允许多轮
+             "MORPH_TS_ARGS": "--max-ct 1790811900000 --seeds 42,43 --epochs 10 "
+                              "--patience 3 --lr 0.0007 --drop 0.05 --train-stride 4 "
+                              "--test-days 92 --val-days 30 --window 120"},
+    ),
     # 数据生产：2020+ 全量 um 1m K 线（含 volume/taker），产物注册为 Kaggle Dataset
     "klineds": dict(
         slug="byh850515/btcusdt-1m-full-2020-dataset-maker",
