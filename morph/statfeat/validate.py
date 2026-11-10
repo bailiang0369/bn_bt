@@ -37,6 +37,7 @@ N_SEG = 3
 ALPHA = 0.05
 MIN_GAP = 0.02
 MIN_IC = 0.02   # 合成负控校准：n 很大时 |IC|=0.015 也能 q<0.05，但无实用价值
+MAX_BASE_CORR = 0.80   # 与现有 lg_* 基准特征相关性上限（树模型对单调变换不敏感）
 INPUT_COLS = ("open", "high", "low", "close",
               "um_buy_vol", "um_sell_vol", "spot_buy_vol", "spot_sell_vol")
 
@@ -113,6 +114,41 @@ def gap_of(f: np.ndarray, y: np.ndarray, idx: np.ndarray, dec: int = 10) -> floa
     return float(hi.mean() - lo.mean()) if len(lo) and len(hi) else 0.0
 
 
+def baseline_feats(df: pl.DataFrame) -> dict[str, np.ndarray]:
+    """现有 kline_long.build() 55 列里最可能被『换皮』复现的几列。"""
+    c = df["close"].to_numpy().astype(np.float64)
+    s = pl.Series("c", c)
+    hi = s.rolling_max(60, min_samples=30).to_numpy()
+    lo = s.rolling_min(60, min_samples=30).to_numpy()
+    ma = s.rolling_mean(15, min_samples=8).to_numpy()
+    r5 = np.full(len(c), np.nan)
+    r5[5:] = np.log(c[5:] / c[:-5]) * 1e4
+    # 用 high/low 复刻 stoch（与 features._stoch 同口径）
+    h29 = pl.Series("h", df["high"].to_numpy()).rolling_max(29, min_samples=15).to_numpy()
+    l29 = pl.Series("l", df["low"].to_numpy()).rolling_min(29, min_samples=15).to_numpy()
+    return {"lg_ret5": r5,
+            "lg_pos60": (c - lo) / (hi - lo + 1e-9),
+            "lg_madev15": (c / (ma + 1e-9) - 1) * 1e4,
+            "stoch29_raw": (c - l29) / (h29 - l29 + 1e-9) * 100,
+            "lg_rv15_proxy": np.abs(r5)}
+
+
+def max_base_corr(f: np.ndarray, base: dict[str, np.ndarray], idx: np.ndarray) -> tuple[float, str]:
+    best, who = 0.0, ""
+    for name, b in base.items():
+        x, z = f[idx], b[idx]
+        ok = np.isfinite(x) & np.isfinite(z)
+        if ok.sum() < 1000:
+            continue
+        a, q = x[ok], z[ok]
+        r = float(np.corrcoef(a, q)[0, 1])
+        if not np.isfinite(r):
+            continue
+        if abs(r) > best:
+            best, who = abs(r), name
+    return best, who
+
+
 def bh_fdr(p: np.ndarray) -> np.ndarray:
     n = len(p)
     order = np.argsort(p)
@@ -150,6 +186,7 @@ def main() -> None:
     segs = np.array_split(idx, N_SEG)
     log(f"[eval] 评估点={len(idx):,}  warmup={warm:,}  {N_SEG} 段各 {len(segs[0]):,} 点")
 
+    base = baseline_feats(df)
     rows = []
     for spec in REGISTRY:
         f = feats[spec.name]
@@ -158,10 +195,11 @@ def main() -> None:
         ics = [ic_of(f, ret, s)[0] for s in segs]
         r_all, p_all = ic_of(f, ret, idx)
         gap = gap_of(f, y, idx)
+        mc, who = max_base_corr(f, base, idx)
         rows.append(dict(name=spec.name, family=spec.family, cover=cover,
                          causal=causal, ic_all=r_all, p=p_all,
-                         ic=ics, gap=gap, expect=spec.expect_pass,
-                         hypothesis=spec.hypothesis))
+                         ic=ics, gap=gap, maxcorr=mc, corr_with=who,
+                         expect=spec.expect_pass, hypothesis=spec.hypothesis))
 
     q = bh_fdr(np.array([r["p"] for r in rows]))
     for r, qi in zip(rows, q):
@@ -169,15 +207,19 @@ def main() -> None:
         sign_ok = all(i > 0 for i in r["ic"]) or all(i < 0 for i in r["ic"])
         r["pass"] = bool(r["causal"] and r["cover"] >= 0.95 and sign_ok
                          and r["q"] < ALPHA and abs(r["gap"]) >= MIN_GAP
-                         and abs(r["ic_all"]) >= MIN_IC)
+                         and abs(r["ic_all"]) >= MIN_IC
+                         and r["maxcorr"] < MAX_BASE_CORR)
 
     log("")
     log(f"{'name':<24}{'cover':>7}{'因果':>5}{'IC全':>9}{'IC1':>8}{'IC2':>8}{'IC3':>8}"
-        f"{'q(FDR)':>10}{'档差pp':>8}{'判定':>7}")
+        f"{'q(FDR)':>10}{'档差pp':>8}{'与旧特征r':>10}{'判定':>7}")
     for r in rows:
         log(f"{r['name']:<24}{r['cover']:>7.3f}{'Y' if r['causal'] else 'N':>5}"
             f"{r['ic_all']:>9.4f}{r['ic'][0]:>8.4f}{r['ic'][1]:>8.4f}{r['ic'][2]:>8.4f}"
-            f"{r['q']:>10.2e}{r['gap'] * 100:>8.2f}{'PASS' if r['pass'] else 'FAIL':>7}")
+            f"{r['q']:>10.2e}{r['gap'] * 100:>8.2f}{r['maxcorr']:>10.3f}"
+            f"{'PASS' if r['pass'] else 'FAIL':>7}")
+    log("[冗余来源] " + ", ".join(f"{r['name']}:{r['corr_with']}={r['maxcorr']:.2f}"
+                                for r in rows if r["maxcorr"] >= MAX_BASE_CORR))
 
     bad_ctrl = [r["name"] for r in rows if not r["expect"] and r["pass"]]
     log("")
@@ -185,7 +227,8 @@ def main() -> None:
     passed = [r["name"] for r in rows if r["pass"] and r["expect"]]
     log(f"[放行清单] {len(passed)}/{sum(1 for r in rows if r['expect'])}: {passed}")
     log(f"[PASS 条件] 因果性 & 覆盖>=0.95 & 3段IC同号 & BH-FDR q<{ALPHA}"
-        f" & |档差|>={MIN_GAP * 100:.0f}pp & |IC|>={MIN_IC}")
+        f" & |档差|>={MIN_GAP * 100:.0f}pp & |IC|>={MIN_IC}"
+        f" & 与已有特征|r|<{MAX_BASE_CORR}")
 
     if a.out:
         pl.DataFrame([{k: v for k, v in r.items() if k not in ("ic", "hypothesis")}
