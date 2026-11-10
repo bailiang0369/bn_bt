@@ -342,6 +342,34 @@ PROJECTS = {
                               "--patience 3 --lr 0.0007 --drop 0.05 --train-stride 4 "
                               "--test-days 92 --val-days 30 --window 120"},
     ),
+    # v3：把「训练/选模目标」直接对准高置信尾部（§14 根因：目标错配）。
+    # 回到 v1 的 2 通道 OHLC 数据与完全相同的超参，各只改一个变量，严格可比。
+    "morph15v3a": dict(
+        slug="byh850515/btcusdt-15min-morph-ts-v3a-tail-select",
+        title="BTCUSDT 15min Morph TS v3a Tail Select",
+        entry="morph.morph_ts",
+        enable_internet=True,
+        dataset_sources=["byh850515/eth-btc-1m-2020"],
+        env={"KAGGLE_HORIZON": "15",
+             "KAGGLE_MORPH_TS_OUT": "/kaggle/working/morph_ts_v3a.parquet",
+             "MORPH_TS_ARGS": "--max-ct 1790811900000 --seeds 42,43 --epochs 6 "
+                              "--patience 2 --lr 0.002 --drop 0.2 --train-stride 8 "
+                              "--test-days 92 --val-days 30 --window 120 "
+                              "--select-metric tail"},
+    ),
+    "morph15v3b": dict(
+        slug="byh850515/btcusdt-15min-morph-ts-v3b-topq-loss",
+        title="BTCUSDT 15min Morph TS v3b TopQ Loss",
+        entry="morph.morph_ts",
+        enable_internet=True,
+        dataset_sources=["byh850515/eth-btc-1m-2020"],
+        env={"KAGGLE_HORIZON": "15",
+             "KAGGLE_MORPH_TS_OUT": "/kaggle/working/morph_ts_v3b.parquet",
+             "MORPH_TS_ARGS": "--max-ct 1790811900000 --seeds 42,43 --epochs 6 "
+                              "--patience 2 --lr 0.002 --drop 0.2 --train-stride 8 "
+                              "--test-days 92 --val-days 30 --window 120 "
+                              "--loss-mode topq --topq 0.10"},
+    ),
     # 数据生产：2020+ 全量 um 1m K 线（含 volume/taker），产物注册为 Kaggle Dataset
     "klineds": dict(
         slug="byh850515/btcusdt-1m-full-2020-dataset-maker",

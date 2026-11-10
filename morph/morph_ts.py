@@ -256,15 +256,24 @@ def train_one(chans, norm, y, tr, va, te, a, seed):
     model = build_model(chans.shape[0], norm, drop=a.drop)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, a.epochs))
-    lossf = nn.BCEWithLogitsLoss()
+    lossf = nn.BCEWithLogitsLoss(reduction="none")
 
-    best_auc, best_state, bad = -1.0, None, 0
+    best_auc, best_sel, best_state, bad = -1.0, -1.0, None, 0
     for ep in range(a.epochs):
         model.train()
         t0, tot, nb = time.time(), 0.0, 0
         for xb, yb in dl_tr:
             opt.zero_grad(set_to_none=True)
-            loss = lossf(model(xb), yb)
+            logits = model(xb)
+            per = lossf(logits, yb).view(-1)
+            if a.loss_mode == "topq":
+                # 只优化 batch 内 |logit| 最大的 q 比例样本 = 直接对准高置信尾部
+                with torch.no_grad():
+                    k = max(1, int(a.topq * logits.numel()))
+                    idx = torch.topk(logits.detach().abs().view(-1), k).indices
+                loss = per[idx].mean()
+            else:
+                loss = per.mean()
             loss.backward()
             opt.step()
             tot += loss.detach().item()
@@ -273,15 +282,21 @@ def train_one(chans, norm, y, tr, va, te, a, seed):
         p_va = _predict(model, dl_va)
         auc = float(roc_auc_score(y[va], p_va))
         acc1, _ = acc_at_cov(p_va - 0.5, y[va], 0.01)
+        # tail = 高置信端覆盖-精度曲线积分（1/2/5%），比单点 val@1% 降噪，
+        # 且与验收目标 top1% 同向；auc 则只优化整体排序（v1/v2 的错配来源）。
+        tail = float(np.mean([acc_at_cov(p_va - 0.5, y[va], c)[0]
+                              for c in (0.01, 0.02, 0.05)]))
+        sel = tail if a.select_metric == "tail" else auc
         print(f"  [seed {seed}] ep{ep + 1}/{a.epochs} loss={tot / max(nb, 1):.4f} "
-              f"val_auc={auc:.4f} val@1%={acc1:.4f} ({time.time() - t0:.0f}s)")
-        if auc > best_auc + 1e-5:
-            best_auc, bad = auc, 0
+              f"val_auc={auc:.4f} val@1%={acc1:.4f} tail={tail:.4f} sel={sel:.4f}"
+              f" ({time.time() - t0:.0f}s)")
+        if sel > best_sel + 1e-5:
+            best_sel, best_auc, bad = sel, auc, 0
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         else:
             bad += 1
             if bad >= a.patience:
-                print(f"  [seed {seed}] 早停（val_auc 连续 {bad} 轮无提升）")
+                print(f"  [seed {seed}] 早停（{a.select_metric} 连续 {bad} 轮无提升）")
                 break
 
     if best_state is not None:
@@ -323,6 +338,11 @@ def main():
     ap.add_argument("--batch", type=int, default=1024)
     ap.add_argument("--lr", type=float, default=2e-3)
     ap.add_argument("--drop", type=float, default=0.2, help="head dropout，v1=0.2（欠拟合可降到 0.05）")
+    ap.add_argument("--loss-mode", default="bce", choices=["bce", "topq"],
+                    help="bce=全batch；topq=只优化batch内|logit|最大的q比例（对准尾部）")
+    ap.add_argument("--topq", type=float, default=0.10)
+    ap.add_argument("--select-metric", default="auc", choices=["auc", "tail"],
+                    help="早停指标：auc=整体排序；tail=val端 1/2/5% 覆盖精度积分")
     ap.add_argument("--seeds", default="42,43")
     ap.add_argument("--train-stride", type=int, default=8, help="训练集抽样步长（CPU 时间控制）")
     ap.add_argument("--max-ct", type=int, default=0,
