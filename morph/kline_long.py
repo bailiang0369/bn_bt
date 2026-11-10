@@ -17,6 +17,9 @@
 
 评估口径与 W1 完全一致（逐月 walk-forward、早停用窗末 10%、4 年滚动窗口），
 主判据仍是 `@日均15单`（15×天数），并同报 `每天top15` 与 AUC。
+注意：`每天top15` 是**日内排名前视口径**——当天没结束就不知道第 15 名的阈值，
+实盘不可执行，只能作为对照，严禁据此判定是否达标（2026-11-10 实测虚高 6~9pp）。
+达标一律以 `@日均15单`（全期 top-K）为准，并看单量分布（日均只是平均）。
 
 env: HORIZON / SEEDS / ROUNDS / WIN_DAYS / START_MONTH / END_MONTH / SYMBOL / KLINE_FROM
 """
@@ -162,6 +165,10 @@ def topk(s, y, k):
 
 
 def daily_stats(s, y, days, n):
+    """【前视对照，不可用于达标判定】每天取 |s| 前 n 名的均值。
+
+    要等当天全部分数出来才知道阈值，实盘无法执行；主判据是 topk(s, y, n*天数)。
+    """
     w = [topk(s[days == d], y[days == d], n) for d in np.unique(days)]
     a = np.array(w)
     return float(a.mean()), float(a.std())

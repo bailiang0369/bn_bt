@@ -700,6 +700,19 @@ PROJECTS = {
              "WIN_DAYS": "730", "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "TOPN": "15", "OUT": "/kaggle/working/kline_fuse.csv"},
     ),
+    # 与 klinefuse 完全同代码，备用 slug。2026-11-10 实测：同一 kernel 推新版本
+    # 必须等上一版本完全收尾（含 nbconvert），否则新版本会一直 QUEUED 僵尸化；
+    # 这不是账号配额或单 kernel 次数限制，换 slug / 等收尾后重推即可启动。
+    "klinefuse2": dict(
+        slug="byh850515/btcusdt-kline-fuse-diag",
+        title="BTCUSDT Kline Fuse Diag",
+        entry="morph.kline_fuse",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "KLINE_FROM": "2020",
+             "WIN_DAYS": "730", "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TOPN": "15", "OUT": "/kaggle/working/kline_fuse.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(

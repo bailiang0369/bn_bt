@@ -7,14 +7,21 @@
   3) **月度胜率 >= 50%**（任何一个月都不能破）
   4) 标准差要小（大容易连续亏）
 
-口径：`每天固定 top15`（W2/L1 已证明长周期必须按日内排名，全局 top-K 会低估 6.8pp）。
+主判据口径（2026-11-10 修正）：`@日均15单` = 全 OOS 按 |score| 取前
+TARGET_TPD × 天数 名。「日均」是总单数/天数的统计结果，每天实际几单不固定，
+必须同时报单量分布（见 h3_gate_eval.daily_orders：日均是平均假象）。
+
+严禁把「每天按日内排名取 topN」当达标依据：该口径要等当天所有分钟分数出来
+才知道第 N 名的阈值，实盘无法执行，属于前视。2026-11-10 实测它把 56~57%
+的真实水平虚高到 63~65%。只可用 REPORT_LOOKAHEAD=1 显式开启作对照。
+
 配置：
   A h15   —— 用 t15 训练、t15 结算
-  B fuse  —— (p15+p30)/2，t15 结算（两个 horizon 的错误模式不同）
-  C h30   —— 用 t30 训练、t30 结算（若产品到期是 30 分钟）
+  B fuse  —— (p15+p30)/2，t15 结算
+  C h30   —— 用 t30 训练、t30 结算
 三个配置每月都用 5 seed、2 年滚动窗、早停窗末 10%。
 
-env: SEEDS / ROUNDS / WIN_DAYS / START_MONTH / END_MONTH / TOPN
+env: SEEDS / ROUNDS / WIN_DAYS / START_MONTH / END_MONTH / TOPN / REPORT_LOOKAHEAD
 """
 from __future__ import annotations
 
@@ -60,40 +67,35 @@ def log(msg: str) -> None:
 
 
 # ---------------------------------------------------------------- 判据
-def daily_topn_seq(score, y, ct, days, n=TOPN, hour_cap=None):
-    """每天按 |score| 取前 n 单，按时间顺序返回 (是否获胜, 所属日, 时间, 分数, 标签)。
+def seq_from_idx(score, y, ct, days, idx):
+    """把选中的下标按真实时间排序后打包；滚动窗口必须依赖时间顺序。"""
+    idx = np.sort(np.asarray(idx))
+    win = ((score[idx] > 0).astype(int) == y[idx]).astype(np.int8)
+    return win, days[idx], ct[idx], score[idx], y[idx]
 
-    hour_cap：每 UTC 小时最多取几单。**覆盖率不变**——始终凑满 n 单，只是把
-    被某个时段垄断的名额让给其他时段的高分单（从当天全量候选里补），不是砍单。
+
+def global_topk_seq(score, y, ct, days, tpd=TARGET_TPD):
+    """主判据 `@日均tpd单`：全 OOS 按 |score| 取前 tpd×天数 名。
+
+    这是评估口径（precision@固定单量），不是逐日下单规则；每天几单不固定，
+    「日均」只是平均，必须连同单量分布一起看。
     """
-    win, dd, tt, ss, yy = [], [], [], [], []
+    k = min(int(tpd) * len(np.unique(days)), len(score))
+    idx = np.argpartition(-np.abs(score), k - 1)[:k]
+    return seq_from_idx(score, y, ct, days, idx)
+
+
+def daily_topn_seq_lookahead(score, y, ct, days, n=TOPN):
+    """【前视，不可用于达标判定】每天等当天全部分数出来后取 |score| 前 n 名。
+
+    实盘无法执行：当天没结束就不知道第 n 名的阈值在哪。保留仅为复现历史
+    数字、量化前视红利；须 REPORT_LOOKAHEAD=1 才会输出。
+    """
+    picks = []
     for d in np.unique(days):
-        idx = np.where(days == d)[0]
-        k = min(n, len(idx))
-        order = idx[np.argsort(-np.abs(score[idx]))]
-        if hour_cap:
-            cnt, chosen = {}, []
-            for i in order:
-                h = int(ct[i] // 3_600_000 % 24)
-                if cnt.get(h, 0) < hour_cap:
-                    chosen.append(i)
-                    cnt[h] = cnt.get(h, 0) + 1
-                if len(chosen) >= k:
-                    break
-            if len(chosen) < k:          # 槽位不够时按分数补足，绝不减少单量
-                used = set(chosen)
-                chosen += [int(i) for i in order if int(i) not in used][:k - len(chosen)]
-            pick = np.asarray(chosen, dtype=order.dtype)
-        else:
-            pick = order[:k]
-        pick = pick[np.argsort(ct[pick])]
-        win.append((score[pick] > 0).astype(int) == y[pick])
-        dd.append(np.full(k, d))
-        tt.append(ct[pick])
-        ss.append(score[pick])
-        yy.append(y[pick])
-    return (np.concatenate(win).astype(np.int8), np.concatenate(dd),
-            np.concatenate(tt), np.concatenate(ss), np.concatenate(yy))
+        m = np.where(days == d)[0]
+        picks.append(m[np.argsort(-np.abs(score[m]))[:min(n, len(m))]])
+    return seq_from_idx(score, y, ct, days, np.concatenate(picks))
 
 
 def roll_rate(seq, w):
@@ -175,7 +177,9 @@ def diagnose(name, win, dd, tt, ss, ret, rv, rng, w=100, k=8):
     return out
 
 
-def report(name, win, days, ct):
+def report(name, win, days, ct, total_days=None):
+    """total_days 必须是全 OOS 的自然日数；主判据下大量日子没单，
+    若拿「有单天数」当分母会把日均算成几十单。"""
     tot = float(win.mean())
     n = len(win)
     se = float(np.sqrt(tot * (1 - tot) / n))
@@ -191,7 +195,12 @@ def report(name, win, days, ct):
         r100d = np.array([np.nan])
     log(f"--- {name} | n={n:,} 总体={tot * 100:.2f}%(SE {se * 100:.2f}pp)"
         f" | 门槛63%:{'过' if tot >= .63 else '未过'} 稳妥65%:{'过' if tot >= .65 else '未过'}")
-    log(f"    覆盖率: {len(np.unique(days))} 天 / 平均 {n / len(np.unique(days)):.2f} 单每天")
+    nd = int(total_days) if total_days else len(np.unique(days))
+    _, cnt = np.unique(days, return_counts=True)
+    log(f"    单量: 日均={n / nd:.2f}（{n}单/{nd}自然日）std={cnt.std():.2f} min={cnt.min()}"
+        f" p10={np.percentile(cnt, 10):.0f} p50={np.median(cnt):.0f}"
+        f" p90={np.percentile(cnt, 90):.0f} max={cnt.max()}"
+        f" | 有单天数={len(cnt)}/{nd} 无单天数={nd - len(cnt)}（日均是平均假象）")
     log(f"    月度: min={mv.min() * 100:.2f}% p10={np.quantile(mv, .1) * 100:.2f}%"
         f" median={np.median(mv) * 100:.2f}% max={mv.max() * 100:.2f}%"
         f" std={mv.std() * 100:.2f}pp | 低于50%的月={int((mv < .5).sum())}/{len(mv)}"
@@ -200,7 +209,10 @@ def report(name, win, days, ct):
         f" median={np.median(r100) * 100:.2f}% | 破50%窗口占={(r100 < .5).mean() * 100:.1f}%"
         f" {'OK' if r100.min() >= .5 else '破线'}")
     log(f"    月度明细: " + ", ".join(f"{k}:{v * 100:.1f}%" for k, v in md.items()))
-    log(f"    滚动100天胜率: min={r100d.min() * 100:.2f}% p5={np.quantile(r100d, .05) * 100:.2f}%")
+    if np.isfinite(r100d.min()):
+        log(f"    滚动100天胜率: min={r100d.min() * 100:.2f}% p5={np.quantile(r100d, .05) * 100:.2f}%")
+    else:
+        log(f"    滚动100天胜率: 不适用（有单天数={len(dser)}<100）")
     log(f"    最大连续亏损: {max_streak(win)} 单")
     return dict(name=name, n=n, total=tot, se=se, month_min=float(mv.min()),
                 month_std=float(mv.std()), roll100_min=float(r100.min()),
@@ -219,7 +231,8 @@ def main() -> None:
     log(f"特征 {len(feats)} 列 | 可用 {df.height:,} 行 | {df['ym'].min()} ~ {df['ym'].max()}")
 
     months = [m for m in sorted(df["ym"].unique().to_list()) if START_MONTH <= m <= END_MONTH]
-    log(f"窗口 {len(months)} 个（{months[0]}~{months[-1]}）| seeds={len(SEEDS)} | topn={TOPN}")
+    log(f"窗口 {len(months)} 个（{months[0]}~{months[-1]}）| seeds={len(SEEDS)}"
+        f" | 主判据=@日均{TARGET_TPD}单（全期top-K，非日内排名）")
 
     store = {"A_h15": [], "B_fuse": [], "C_h30": []}
     px_ct, px_c = [], []
@@ -256,21 +269,23 @@ def main() -> None:
     log("")
     ret, rv, rng = day_bg(np.concatenate(px_ct), np.concatenate(px_c))
     log(f"行情背景就绪：{len(ret)} 天 | 日均|收益|={np.mean([abs(v) for v in ret.values()]) * 100:.2f}%")
-    # hour_cap 变体复用 B_fuse 的预测与标签：只改「选哪 15 单」，覆盖率恒定不变
-    specs = [("A_h15", "A_h15", None), ("B_fuse", "B_fuse", None),
-             ("C_h30", "C_h30", None),
-             ("D_fuse_cap2", "B_fuse", 2), ("E_fuse_cap1", "B_fuse", 1)]
+    # 主判据只有一个：全期 top-K（@日均15单）。日内排名口径默认不输出。
+    lookahead = os.environ.get("REPORT_LOOKAHEAD", "0") == "1"
+    total_days = len(np.unique(np.concatenate([x[2] for x in store["A_h15"]])))
     rows, diag, trades = [], [], []
-    for key, src, cap in specs:
-        p = np.concatenate([x[0] for x in store[src]])
-        y = np.concatenate([x[1] for x in store[src]]).astype(np.int8)
-        d = np.concatenate([x[2] for x in store[src]])
-        c = np.concatenate([x[3] for x in store[src]])
+    for key in ("A_h15", "B_fuse", "C_h30"):
+        p = np.concatenate([x[0] for x in store[key]])
+        y = np.concatenate([x[1] for x in store[key]]).astype(np.int8)
+        d = np.concatenate([x[2] for x in store[key]])
+        c = np.concatenate([x[3] for x in store[key]])
         s = p - .5
-        win, dd, tt, ss, yy = daily_topn_seq(s, y, c, d, TOPN, hour_cap=cap)
-        rows.append(report(key, win, dd, tt))
+        win, dd, tt, ss, yy = global_topk_seq(s, y, c, d, TARGET_TPD)
+        rows.append(report(key, win, dd, tt, total_days))
         diag += diagnose(key, win, dd, tt, ss, ret, rv, rng)
         trades.append(pl.DataFrame(dict(cfg=key, ct=tt, day=dd, score=ss, y=yy, win=win)))
+        if lookahead:
+            lw, ld, lt = daily_topn_seq_lookahead(s, y, c, d, TOPN)[:3]
+            report(f"{key}_LOOKAHEAD[前视·禁止用于达标]", lw, ld, lt, total_days)
     if OUT:
         pl.DataFrame(rows).write_csv(OUT)
         base = str(Path(OUT).with_suffix(""))
