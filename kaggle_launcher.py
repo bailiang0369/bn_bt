@@ -370,6 +370,32 @@ PROJECTS = {
                               "--test-days 92 --val-days 30 --window 120 "
                               "--loss-mode topq --topq 0.10"},
     ),
+    # 基线可信度检验：v1 配置完全不变，只把 test 段整体前移 92 / 184 天。
+    # 若 0.6337 复现不了，说明它是 test 段运气，前面所有「优化变差」都不是改动之过。
+    "morph15off1": dict(
+        slug="byh850515/btcusdt-15min-morph-ts-offset1",
+        title="BTCUSDT 15min Morph TS Offset 1",
+        entry="morph.morph_ts",
+        enable_internet=True,
+        dataset_sources=["byh850515/eth-btc-1m-2020"],
+        env={"KAGGLE_HORIZON": "15",
+             "KAGGLE_MORPH_TS_OUT": "/kaggle/working/morph_ts_off1.parquet",
+             "MORPH_TS_ARGS": "--max-ct 1782863100000 --seeds 42,43 --epochs 6 "
+                              "--patience 2 --lr 0.002 --drop 0.2 --train-stride 8 "
+                              "--test-days 92 --val-days 30 --window 120"},
+    ),
+    "morph15off2": dict(
+        slug="byh850515/btcusdt-15min-morph-ts-offset2",
+        title="BTCUSDT 15min Morph TS Offset 2",
+        entry="morph.morph_ts",
+        enable_internet=True,
+        dataset_sources=["byh850515/eth-btc-1m-2020"],
+        env={"KAGGLE_HORIZON": "15",
+             "KAGGLE_MORPH_TS_OUT": "/kaggle/working/morph_ts_off2.parquet",
+             "MORPH_TS_ARGS": "--max-ct 1774914300000 --seeds 42,43 --epochs 6 "
+                              "--patience 2 --lr 0.002 --drop 0.2 --train-stride 8 "
+                              "--test-days 92 --val-days 30 --window 120"},
+    ),
     # 数据生产：2020+ 全量 um 1m K 线（含 volume/taker），产物注册为 Kaggle Dataset
     "klineds": dict(
         slug="byh850515/btcusdt-1m-full-2020-dataset-maker",
