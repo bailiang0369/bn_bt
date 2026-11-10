@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """L2：长周期 h=15 / h=30 / 融合，按实盘验收判据输出。
 
-用户判据（2026-11-09）：
+用户判据（2026-11-09；滚动口径 2026-11-10 明确为「成交单」）：
   1) 总体胜率 >= 65%（稳妥），63% 只是可上实盘的门槛
-  2) **滚动 100 期胜率 >= 50%**（任何时点都不能破）
+  2) **滚动 ROLL_N 单胜率 >= 50%**（按成交单序列滚，不是 100 天/100 期；任何时点不能破）
   3) **月度胜率 >= 50%**（任何一个月都不能破）
   4) 标准差要小（大容易连续亏）
 
@@ -21,7 +21,7 @@ TARGET_TPD × 天数 名。「日均」是总单数/天数的统计结果，每�
   C h30   —— 用 t30 训练、t30 结算
 三个配置每月都用 5 seed、2 年滚动窗、早停窗末 10%。
 
-env: SEEDS / ROUNDS / WIN_DAYS / START_MONTH / END_MONTH / TOPN / REPORT_LOOKAHEAD
+env: SEEDS / ROUNDS / WIN_DAYS / START_MONTH / END_MONTH / TOPN / ROLL_N / REPORT_LOOKAHEAD
 """
 from __future__ import annotations
 
@@ -58,6 +58,8 @@ ES_FRAC = float(os.environ.get("ES_FRAC", "0.1"))
 START_MONTH = os.environ.get("START_MONTH", "2026-01")
 END_MONTH = os.environ.get("END_MONTH", "2026-10")
 TOPN = int(os.environ.get("TOPN", "15"))
+# 滚动判据窗口：按「成交单」计，不是按天/按期数（用户 2026-11-10 明确）。
+ROLL_N = int(os.environ.get("ROLL_N", "100"))
 OUT = os.environ.get("OUT", "/kaggle/working/kline_fuse.csv")
 T = time.time()
 
@@ -116,10 +118,6 @@ def monthly_rate(win, ct_ms):
     return {str(m): float(win[ym == m].mean()) for m in np.unique(ym)}
 
 
-def daily_rates(win, days):
-    return {int(d): float(win[days == d].mean()) for d in np.unique(days)}
-
-
 # ---------------------------------------------------------------- 失效段诊断
 def _dstr(day: int) -> str:
     return str(np.datetime64(int(day), "D"))
@@ -140,7 +138,7 @@ def day_bg(ct, close):
     return ret, rv, rng
 
 
-def diagnose(name, win, dd, tt, ss, ret, rv, rng, w=100, k=8):
+def diagnose(name, win, dd, tt, ss, ret, rv, rng, w=ROLL_N, k=8):
     """滚动 w 单最差窗口（去重叠）：起止日、窗口内行情、下单小时分布、置信度。"""
     r = roll_rate(win, w)
     picked: list[int] = []
@@ -183,16 +181,9 @@ def report(name, win, days, ct, total_days=None):
     tot = float(win.mean())
     n = len(win)
     se = float(np.sqrt(tot * (1 - tot) / n))
-    r100 = roll_rate(win, 100) if n > 100 else np.array([np.nan])
+    r100 = roll_rate(win, ROLL_N) if n > ROLL_N else np.array([np.nan])
     md = monthly_rate(win, ct)
     mv = np.array(list(md.values()))
-    dr = daily_rates(win, days)
-    dser = np.array([dr[d] for d in sorted(dr)])
-    if len(dser) > 100:
-        cs = np.concatenate([[0], np.cumsum(dser)])
-        r100d = (cs[100:] - cs[:-100]) / 100
-    else:
-        r100d = np.array([np.nan])
     log(f"--- {name} | n={n:,} 总体={tot * 100:.2f}%(SE {se * 100:.2f}pp)"
         f" | 门槛63%:{'过' if tot >= .63 else '未过'} 稳妥65%:{'过' if tot >= .65 else '未过'}")
     nd = int(total_days) if total_days else len(np.unique(days))
@@ -205,14 +196,10 @@ def report(name, win, days, ct, total_days=None):
         f" median={np.median(mv) * 100:.2f}% max={mv.max() * 100:.2f}%"
         f" std={mv.std() * 100:.2f}pp | 低于50%的月={int((mv < .5).sum())}/{len(mv)}"
         f" {'OK' if mv.min() >= .5 else '破线'}")
-    log(f"    滚动100单胜率: min={r100.min() * 100:.2f}% p5={np.quantile(r100, .05) * 100:.2f}%"
+    log(f"    滚动{ROLL_N}单胜率: min={r100.min() * 100:.2f}% p5={np.quantile(r100, .05) * 100:.2f}%"
         f" median={np.median(r100) * 100:.2f}% | 破50%窗口占={(r100 < .5).mean() * 100:.1f}%"
         f" {'OK' if r100.min() >= .5 else '破线'}")
     log(f"    月度明细: " + ", ".join(f"{k}:{v * 100:.1f}%" for k, v in md.items()))
-    if np.isfinite(r100d.min()):
-        log(f"    滚动100天胜率: min={r100d.min() * 100:.2f}% p5={np.quantile(r100d, .05) * 100:.2f}%")
-    else:
-        log(f"    滚动100天胜率: 不适用（有单天数={len(dser)}<100）")
     log(f"    最大连续亏损: {max_streak(win)} 单")
     return dict(name=name, n=n, total=tot, se=se, month_min=float(mv.min()),
                 month_std=float(mv.std()), roll100_min=float(r100.min()),
