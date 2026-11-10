@@ -809,6 +809,27 @@ PROJECTS = {
         env={"SCORES_NAME": "kline_fuse_hist_scores.parquet",
              "TPD": "15", "ROLL_N": "100", "W_LIST": "0,7,30,90,365"},
     ),
+    # 统计形态特征逐项验证（用户 2026-11-11）：因果性 / 跨段IC / FDR / 档差 / 负控。
+    # 数据源 vision-base 2020+ 全量 1m（含现货+合约四列主动买卖量），不下载大产物，
+    # 只输出小 csv + 日志。h=15 对应形态腿，h=3 对应产品周期。
+    "statfeat15": dict(
+        slug="byh850515/btcusdt-statfeat-validate-h15",
+        title="BTCUSDT Statfeat Validate H15",
+        entry="morph.statfeat.validate",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"KLINE_FROM": "2020",
+             "STATFEAT_ARGS": "--horizon 15 --step 5 --out /kaggle/working/statfeat_h15.csv"},
+    ),
+    "statfeat3": dict(
+        slug="byh850515/btcusdt-statfeat-validate-h3",
+        title="BTCUSDT Statfeat Validate H3",
+        entry="morph.statfeat.validate",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"KLINE_FROM": "2020",
+             "STATFEAT_ARGS": "--horizon 3 --step 5 --out /kaggle/working/statfeat_h3.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
