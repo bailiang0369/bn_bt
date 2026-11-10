@@ -713,6 +713,18 @@ PROJECTS = {
              "WIN_DAYS": "730", "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "TOPN": "15", "OUT": "/kaggle/working/kline_fuse.csv"},
     ),
+    # 离线回放（不训练）：挂载 klinefuse2 的全历史 OOS 分数，测试因果滚动分位归一化
+    # 能否在总单量不变下把单量分散到更多天、改善滚动100单与连亏。
+    "klinenorm": dict(
+        slug="byh850515/btcusdt-kline-norm-eval",
+        title="BTCUSDT Kline Norm Eval",
+        entry="morph.kline_norm_eval",
+        enable_internet=True,
+        dataset_sources=[],
+        kernel_sources=["byh850515/btcusdt-kline-fuse-diag"],
+        env={"SCORES_NAME": "kline_fuse_hist_scores.parquet",
+             "TPD": "15", "ROLL_N": "100", "W_LIST": "0,7,30,90,365"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
