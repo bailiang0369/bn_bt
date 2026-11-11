@@ -243,5 +243,203 @@ def f_ctrl_noise(df):
     return _f(np.random.default_rng(20261111).standard_normal(df.height))
 
 
+# ---------------------------------------------------------------- 扩展工具
+def _moments(x: np.ndarray, w: int):
+    """trailing 方差/偏度/超额峰度（O(N) 矩估计）。"""
+    v = np.nan_to_num(np.asarray(x, dtype=np.float64), nan=0.0)
+    m1, m2 = _boxcar(v, w), _boxcar(v * v, w)
+    m3, m4 = _boxcar(v ** 3, w), _boxcar(v ** 4, w)
+    var = np.maximum(m2 - m1 ** 2, 1e-18)
+    skew = (m3 - 3 * m1 * m2 + 2 * m1 ** 3) / var ** 1.5
+    kurt = (m4 - 4 * m1 * m3 + 6 * m1 ** 2 * m2 - 3 * m1 ** 4) / var ** 2 - 3
+    return var, skew, kurt
+
+
+def _run_len(mask: np.ndarray) -> np.ndarray:
+    """当前连续满足条件的长度（因果，O(N)）。"""
+    out = np.zeros(len(mask), dtype=np.float64)
+    cur = 0
+    for i, v in enumerate(mask):
+        cur = cur + 1 if v else 0
+        out[i] = cur
+    return out
+
+
+def _ret1(df: pl.DataFrame) -> np.ndarray:
+    c = df["close"].to_numpy().astype(np.float64)
+    r = np.zeros(len(c))
+    r[1:] = c[1:] / c[:-1] - 1
+    return r
+
+
+def _linfit_resid(x: np.ndarray, w: int):
+    """trailing 线性回归的 R² 与残差 z；x 对时间做回归，O(N)。
+
+    R² 高 = 斜率稳定（用户图1 那些直线段）；残差突变 = 斜率被打破。
+    """
+    v = np.nan_to_num(np.asarray(x, dtype=np.float64), nan=0.0)
+    t = np.arange(w, dtype=np.float64)
+    t -= t.mean()
+    denom = float(t @ t)
+    sx, sxx = _boxcar(v, w), _boxcar(v * v, w)
+    stx = np.full(len(v), np.nan)
+    c = np.cumsum(np.insert(v, 0, 0.0))
+    # trailing Σ(t_i - tbar)*v_i，用前缀和递推两项即可
+    p1 = np.cumsum(np.insert(v * np.arange(len(v), dtype=np.float64), 0, 0.0))
+    k = np.arange(len(v), dtype=np.float64)
+    for_ = np.full(len(v), np.nan)
+    for_[w - 1:] = (p1[w:] - p1[:-w]) - (w - 1) / 2 * (c[w:] - c[:-w])
+    b = for_ / denom
+    var = np.maximum(sxx - sx ** 2, 1e-18)
+    r2 = np.clip((b ** 2) * denom / (w * var), 0, 1)
+    resid = v - (sx + b * t[-1])          # 末端拟合值 vs 实际
+    return r2, resid / (np.sqrt(var) + 1e-9)
+
+
+# ---------------------------------------------------------------- D: 分布矩 / 偏斜
+@register("ret_skew7d", "D_分布矩", "1m收益的7日滚动偏度：收益分布不对称")
+def f_ret_skew(df):
+    return _f(_moments(_ret1(df), WEEK)[1])
+
+
+@register("ret_kurt7d", "D_分布矩", "1m收益的7日超额峰度：尾部厚度")
+def f_ret_kurt(df):
+    return _f(_moments(_ret1(df), WEEK)[2])
+
+
+@register("down_frac7d", "D_分布矩", "过去7天下跌bar占比（用户『0轴下方比例大』的直接统计）")
+def f_down_frac(df):
+    r = _ret1(df)
+    return _f(_boxcar((r < 0).astype(np.float64), WEEK))
+
+
+@register("stoch_below50_frac7d", "D_分布矩", "stoch低于50的7日占比：分布偏斜的持续程度")
+def f_stoch_below(df):
+    s = _stoch(df)
+    return _f(_boxcar((s < 50).astype(np.float64), WEEK))
+
+
+@register("absret_iqr_ratio7d", "D_分布矩", "绝对收益的滚动IQR/std：尾部相对厚度")
+def f_iqr_ratio(df):
+    r = np.abs(_ret1(df))
+    s = pl.Series("r", r)
+    q75 = s.rolling_quantile(0.75, window_size=WEEK, min_samples=DAY).to_numpy()
+    q25 = s.rolling_quantile(0.25, window_size=WEEK, min_samples=DAY).to_numpy()
+    sd = s.rolling_std(WEEK, min_samples=DAY).to_numpy()
+    return _f((q75 - q25) / (sd + 1e-12))
+
+
+# ---------------------------------------------------------------- E: 游程 / 状态持续性
+@register("up_run_len", "E_游程", "当前连续上涨bar长度")
+def f_up_run(df):
+    return _f(_run_len(_ret1(df) > 0))
+
+
+@register("down_run_len", "E_游程", "当前连续下跌bar长度")
+def f_down_run(df):
+    return _f(_run_len(_ret1(df) < 0))
+
+
+@register("cvd_down_run", "E_游程", "合约CVD连续下降的时长（用户：长期向下且斜率稳定）")
+def f_cvd_down_run(df):
+    s = _slope(_cvd(df, "um"), 60)
+    return _f(_run_len(s < 0))
+
+
+@register("stoch_below_run", "E_游程", "stoch持续低于50的时长")
+def f_stoch_below_run(df):
+    return _f(_run_len(_stoch(df) < 50))
+
+
+@register("ret_var_ratio_60_15", "F_长记忆", "方差比VR(60,15)：>1趋势、<1均值回复")
+def f_var_ratio(df):
+    r = _ret1(df)
+    v = np.maximum(_moments(r, 60)[0], 1e-18)
+    v15 = np.maximum(_moments(r, 15)[0], 1e-18)
+    return _f(v / (4 * v15 + 1e-18))
+
+
+@register("ac1_ret7d", "F_长记忆", "1m收益一阶自相关的7日滚动估计")
+def f_ac1(df):
+    r = _ret1(df)
+    a, b = r[1:], r[:-1]
+    prod = np.concatenate([[0.0], a * b])
+    m = _boxcar(r, WEEK)
+    # trailing cov(r_t, r_{t-1}) / var
+    cov = _boxcar(prod, WEEK)
+    var = np.maximum(_moments(r, WEEK)[0], 1e-18)
+    return _f(cov / var)
+
+
+@register("rv_regime_z7d", "F_长记忆", "已实现波动的7日滚动z：波动状态")
+def f_rv_z(df):
+    r = _ret1(df)
+    rv = np.sqrt(np.maximum(_moments(r, 60)[0], 1e-18))
+    return _f(_roll_z(rv, WEEK))
+
+
+# ---------------------------------------------------------------- G: CVD 形态回归
+@register("cvdu_fit_r2_1d", "G_CVD形态", "合约CVD对时间滚动回归R²：斜率有多稳定")
+def f_cvdu_r2(df):
+    return _f(_linfit_resid(_cvd(df, "um"), DAY)[0])
+
+
+@register("cvdu_fit_resid_z", "G_CVD形态", "合约CVD偏离拟合直线的残差z：斜率被打破")
+def f_cvdu_resid(df):
+    return _f(_linfit_resid(_cvd(df, "um"), DAY)[1])
+
+
+@register("cvd_accel_1d", "G_CVD形态", "合约CVD斜率的二阶变化（60m斜率的变化率）")
+def f_cvd_accel(df):
+    s = _slope(_cvd(df, "um"), 60)
+    return _f(_roll_z(_slope(s, 60), WEEK))
+
+
+@register("cvd_price_beta1d", "G_CVD形态", "CVD与价格的1日滚动beta：量价耦合强度")
+def f_cvd_beta(df):
+    cv, r = _cvd(df, "um"), _ret1(df)
+    cov = _boxcar(cv * r, DAY) - _boxcar(cv, DAY) * _boxcar(r, DAY)
+    return _f(cov / (np.maximum(_moments(r, DAY)[0], 1e-18)))
+
+
+# ---------------------------------------------------------------- H: 跨市场 / 极值
+@register("cvd_slope_spread1d", "H_跨市场", "现货与合约CVD 1日斜率之差的z：两侧资金分歧")
+def f_slope_spread(df):
+    a = _slope(_cvd(df, "spot"), DAY)
+    b = _slope(_cvd(df, "um"), DAY)
+    return _f(_roll_z(a - b, WEEK))
+
+
+@register("vol_ratio_spot_um", "H_跨市场", "现货/合约成交量比的滚动z")
+def f_vol_ratio(df):
+    sv = _col(df, "spot_buy_vol") + _col(df, "spot_sell_vol")
+    uv = _col(df, "um_buy_vol") + _col(df, "um_sell_vol")
+    return _f(_roll_z(sv / (uv + 1e-9), WEEK))
+
+
+@register("basis_z7d", "H_跨市场", "perp-spot基差的7日滚动z（若含spot_close）")
+def f_basis(df):
+    if "spot_close" not in df.columns:
+        return _f(np.full(df.height, np.nan))
+    sp = df["spot_close"].fill_null(0).to_numpy().astype(np.float64)
+    c = df["close"].to_numpy().astype(np.float64)
+    return _f(_roll_z((c / (sp + 1e-9) - 1) * 1e4, WEEK))
+
+
+@register("maxdd_1d", "I_极值", "过去1日价格最大回撤")
+def f_maxdd(df):
+    c = df["close"].to_numpy().astype(np.float64)
+    peak = pl.Series("c", c).rolling_max(DAY, min_samples=DAY // 2).to_numpy()
+    return _f(c / (peak + 1e-9) - 1)
+
+
+@register("tail_asym7d", "I_极值", "正/负极值幅度比：上下尾不对称")
+def f_tail_asym(df):
+    r = _ret1(df)
+    hi = pl.Series("r", r).rolling_max(WEEK, min_samples=DAY).to_numpy()
+    lo = pl.Series("r", r).rolling_min(WEEK, min_samples=DAY).to_numpy()
+    return _f((hi + lo) / (hi - lo + 1e-12))
+
+
 def build_all(df: pl.DataFrame) -> dict[str, np.ndarray]:
     return {s.name: s.fn(df) for s in REGISTRY}

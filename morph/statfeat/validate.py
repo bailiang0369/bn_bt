@@ -58,6 +58,7 @@ def load_data(synthetic: bool, rows: int) -> pl.DataFrame:
             "open": c, "high": c * 1.0002, "low": c * 0.9998, "close": c,
             "um_buy_vol": tb, "um_sell_vol": v - tb,
             "spot_buy_vol": tb * 0.8, "spot_sell_vol": (v - tb) * 1.1,
+            "spot_close": c * 0.9998,
         })
     from morph.kline_long import load_raw
     return load_raw()

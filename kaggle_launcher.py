@@ -830,6 +830,26 @@ PROJECTS = {
         env={"KLINE_FROM": "2020",
              "STATFEAT_ARGS": "--horizon 3 --step 5 --out /kaggle/working/statfeat_h3.csv"},
     ),
+    # 统计特征**画像归档**（不淘汰）：8 个 horizon(3m~1w) × 3 段 × 双标的，
+    # 长 horizon 用非重叠抽样避免标签重叠伪相关，输出结构化档案 csv。
+    "statprof_btc": dict(
+        slug="byh850515/btcusdt-statfeat-profile",
+        title="BTCUSDT Statfeat Profile",
+        entry="morph.statfeat.profile",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "KLINE_FROM": "2020",
+             "STATPROF_ARGS": "--step 5 --out /kaggle/working/profile_btc.csv"},
+    ),
+    "statprof_eth": dict(
+        slug="byh850515/ethusdt-statfeat-profile",
+        title="ETHUSDT Statfeat Profile",
+        entry="morph.statfeat.profile",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "ETHUSDT", "KLINE_FROM": "2020",
+             "STATPROF_ARGS": "--step 5 --out /kaggle/working/profile_eth.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
