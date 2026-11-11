@@ -379,9 +379,11 @@ def f_rv_z(df):
 
 
 # ---------------------------------------------------------------- G: CVD 形态回归
-@register("cvdu_fit_r2_1d", "G_CVD形态", "合约CVD对时间滚动回归R²：斜率有多稳定")
+@register("cvdu_fit_r2_1d", "G_CVD形态",
+          "合约CVD对时间滚动回归R²；实测恒≈1（累积量在1天窗内本就近似线性），区分度不足，仅归档")
 def f_cvdu_r2(df):
-    return _f(_linfit_resid(_cvd(df, "um"), DAY)[0])
+    r2 = _linfit_resid(_cvd(df, "um"), DAY)[0]
+    return _f(np.nan_to_num(r2, nan=0.0, posinf=1.0, neginf=0.0))
 
 
 @register("cvdu_fit_resid_z", "G_CVD形态", "合约CVD偏离拟合直线的残差z：斜率被打破")
@@ -412,9 +414,10 @@ def f_slope_spread(df):
 
 @register("vol_ratio_spot_um", "H_跨市场", "现货/合约成交量比的滚动z")
 def f_vol_ratio(df):
+    # 用 log 差而非比值：个别 bar 合约量近 0 会让比值爆炸（实测 skew 844、mean 5.7e6）
     sv = _col(df, "spot_buy_vol") + _col(df, "spot_sell_vol")
     uv = _col(df, "um_buy_vol") + _col(df, "um_sell_vol")
-    return _f(_roll_z(sv / (uv + 1e-9), WEEK))
+    return _f(_roll_z(np.log1p(sv) - np.log1p(uv), WEEK))
 
 
 @register("basis_z7d", "H_跨市场", "perp-spot基差的7日滚动z（若含spot_close）")
