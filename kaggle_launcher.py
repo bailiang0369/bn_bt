@@ -850,6 +850,28 @@ PROJECTS = {
         env={"SYMBOL": "ETHUSDT", "KLINE_FROM": "2020",
              "STATPROF_ARGS": "--step 5 --out /kaggle/working/profile_eth.csv"},
     ),
+    # **无假设**条件分桶扫描（hypothesis generator）：16 个因果条件维度 × h=3/15/60，
+    # 与 features.py 的区别是「不写公式、只枚举条件」，用来发现我们没想到的规律。
+    # 口径：非重叠抽样(step=h) + BH-FDR + 3 段同号 + 强制报假阳性预期。
+    # 只输出小 csv + 日志，不落大数据产物。显著数 ≤ 假阳性预期即判该 horizon 无规律。
+    "statscan_btc": dict(
+        slug="byh850515/btcusdt-statfeat-scan",
+        title="BTCUSDT Statfeat Scan",
+        entry="morph.statfeat.scan",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "KLINE_FROM": "2020",
+             "SCAN_OUT": "/kaggle/working/scan_btc.csv"},
+    ),
+    "statscan_eth": dict(
+        slug="byh850515/ethusdt-statfeat-scan",
+        title="ETHUSDT Statfeat Scan",
+        entry="morph.statfeat.scan",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "ETHUSDT", "KLINE_FROM": "2020",
+             "SCAN_OUT": "/kaggle/working/scan_eth.csv"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
