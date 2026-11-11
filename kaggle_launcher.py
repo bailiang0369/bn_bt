@@ -872,6 +872,20 @@ PROJECTS = {
         env={"SYMBOL": "ETHUSDT", "KLINE_FROM": "2020",
              "SCAN_OUT": "/kaggle/working/scan_eth.csv"},
     ),
+    # 扫描发现 × 现役信号的**正交性交叉检验**（零训练成本，不重训模型）：
+    # 把 scan.py 找到的条件桶套到 h3_signal 已触发的单上，看是否还有分化；
+    # 并按 |p-0.5| 三分位分层，判断条件桶是真的新信息还是置信度的代理。
+    # 需要挂 h3gate kernel 的 output（h3_gate_pred.parquet）。
+    "statxcheck": dict(
+        slug="byh850515/btcusdt-statfeat-xcheck",
+        title="BTCUSDT Statfeat Xcheck",
+        entry="morph.statfeat.xcheck",
+        enable_internet=True,
+        dataset_sources=[],
+        kernel_sources=["byh850515/btcusdt-h3-gate"],
+        env={"KLINE_FROM": "2025",
+             "PRED": "/kaggle/input/btcusdt-h3-gate/h3_gate_pred.parquet"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(

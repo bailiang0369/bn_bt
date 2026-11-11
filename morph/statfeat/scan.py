@@ -85,9 +85,9 @@ def _roll_rank5(x: np.ndarray, w: int) -> np.ndarray:
 
 
 def _run_len(ret: np.ndarray) -> np.ndarray:
-    """连续同向长度 cap 到 5（0=无效）。因果。"""
+    """连续同向长度 cap 到 5；无效（ret 为 NaN/0）记 -1，避免被当成独立桶。因果。"""
     n = len(ret)
-    out = np.zeros(n, dtype=np.int8)
+    out = np.full(n, -1, dtype=np.int8)
     cur = 0
     d_prev = 0
     for i in range(n):
