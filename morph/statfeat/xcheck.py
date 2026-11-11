@@ -221,7 +221,7 @@ def main() -> None:
         p0, p1 = float(win[tmask].mean()), float(win[keep].mean())
         n0, n1 = int(tmask.sum()), int(keep.sum())
         log(f"  {k:<14} 前半排除 {bad} → 后半 {p0 * 100:.2f}%({n0}) → "
-            f"{p1 * 100:.2f}%({n1})  **{p1 - p0:+.2f}pp**，"
+            f"{p1 * 100:.2f}%({n1})  **{(p1 - p0) * 100:+.2f}pp**，"
             f"剔除 {n0 - n1} 单（{(n0 - n1) / n0 * 100:.1f}%）")
 
     # ---------- 4. 结论
