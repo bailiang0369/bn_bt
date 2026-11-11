@@ -872,6 +872,28 @@ PROJECTS = {
         env={"SYMBOL": "ETHUSDT", "KLINE_FROM": "2020",
              "SCAN_OUT": "/kaggle/working/scan_eth.csv"},
     ),
+    # 统计**知识库**（不设交易准入门）：6 个目标（收益/绝对收益/波幅/回撤/量能/资金流）
+    # × 5 个 horizon（3m~1d）× 16 个条件维度，全量归档成可检索长表。
+    # 与 scan 的区别：scan 只问「涨跌概率」，本项把「什么时候波动大/量大/回撤深」也归档，
+    # 结论对二元合约无用也保留（用户 2026-11-11 明确口径）。
+    "statlib_btc": dict(
+        slug="byh850515/btcusdt-statfeat-library",
+        title="BTCUSDT Statfeat Library",
+        entry="morph.statfeat.library",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "KLINE_FROM": "2020",
+             "LIB_OUT": "/kaggle/working/library_btc.csv"},
+    ),
+    "statlib_eth": dict(
+        slug="byh850515/ethusdt-statfeat-library",
+        title="ETHUSDT Statfeat Library",
+        entry="morph.statfeat.library",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "ETHUSDT", "KLINE_FROM": "2020",
+             "LIB_OUT": "/kaggle/working/library_eth.csv"},
+    ),
     # 扫描发现 × 现役信号的**正交性交叉检验**（零训练成本，不重训模型）：
     # 把 scan.py 找到的条件桶套到 h3_signal 已触发的单上，看是否还有分化；
     # 并按 |p-0.5| 三分位分层，判断条件桶是真的新信息还是置信度的代理。
