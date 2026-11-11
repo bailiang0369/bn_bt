@@ -62,13 +62,16 @@ def rank_matrix(x: np.ndarray) -> np.ndarray:
     return out
 
 
-def describe(x: np.ndarray) -> tuple[float, float, float]:
+def describe(x: np.ndarray) -> tuple[float, ...]:
+    """分布形态 + 水平统计。用户举例的现象本身就是描述统计，必须归档。"""
     v = x[np.isfinite(x)]
     if len(v) < 1000:
-        return 0.0, 0.0, 0.0
+        return (0.0,) * 7
     ac = float(np.corrcoef(v[:-1], v[1:])[0, 1])
     return (float(skew(v)), float(kurtosis(v)),
-            ac if np.isfinite(ac) else 0.0)
+            ac if np.isfinite(ac) else 0.0,
+            float(np.mean(v)), float(np.median(v)),
+            float(np.quantile(v, 0.1)), float(np.quantile(v, 0.9)))
 
 
 def main() -> None:
@@ -128,6 +131,10 @@ def main() -> None:
         rr = rankdata(rv)
         rr = (rr - rr.mean()) / (rr.std() + 1e-9)
         ic_all = np.nanmean(R * rr[:, None], axis=0)
+        # CVD 水平值 = 时间趋势累积量，长 horizon 与未来收益天然共线。
+        # 用它当基线，记录扣除趋势后的超额 IC，避免把伪相关写进知识库。
+        ctrl_j = names.index("CTRL_cvd_level") if "CTRL_cvd_level" in names else -1
+        ctrl_ic = float(ic_all[ctrl_j]) if ctrl_j >= 0 else 0.0
         ic_seg = []
         for sg in segs:
             rs = rankdata(rv[sg])
@@ -145,8 +152,11 @@ def main() -> None:
                              horizon=h, scenario=scenario(h),
                              ic_all=float(ic_all[j]), ic_s1=ics[0], ic_s2=ics[1], ic_s3=ics[2],
                              sign_consistent=bool(same), gap_pp=gap * 100,
-                             n_eval=len(idx),
+                             n_eval=len(idx), ctrl_ic=ctrl_ic,
+                             ic_excess=float(ic_all[j]) - ctrl_ic,
                              skew=descs[j][0], kurt=descs[j][1], ac1=descs[j][2],
+                             mean=descs[j][3], median=descs[j][4],
+                             p10=descs[j][5], p90=descs[j][6],
                              corr_base=corr_base[j][0], corr_with=corr_base[j][1],
                              causal=bool(causal[j]), is_control=not spec_list[j].expect_pass,
                              hypothesis=spec_list[j].hypothesis))
@@ -167,6 +177,31 @@ def main() -> None:
             f"{str(r['n_eval']) + flag:>8}{'Y' if r['sign_consistent'] else 'N':>8}{r['gap_pp']:>8.2f}"
             f"{r['corr_base']:>7.2f}{'Y' if r['causal'] else 'N':>5}  {r['scenario']}")
     log("* = 独立样本 <200，IC 与档差仅定性参考")
+
+    log("")
+    log("=== 趋势基线：CTRL_cvd_level 各 horizon 的 IC（长周期伪相关参照） ===")
+    for h in HORIZONS:
+        r = out.filter((pl.col("name") == "CTRL_cvd_level")
+                       & (pl.col("horizon") == h)).row(0, named=True)
+        log(f"  h={h:>5}m  ctrl_ic={r['ic_all']:+.4f}  n={r['n_eval']}")
+
+    log("")
+    log("=== 用户举例现象的描述统计（mean / median / p10 / p90 / 偏度 / 一阶自相关） ===")
+    for nm in ("stoch_below50_frac7d", "down_frac7d", "cvd_slope_corr7d",
+               "cvdu_fit_r2_1d", "cvd_down_run", "cvdu_slope_z7d",
+               "cvd_slope_spread1d", "vol_ratio_spot_um"):
+        r = out.filter(pl.col("name") == nm).row(0, named=True)
+        log(f"  {nm:<26} mean={r['mean']:>9.3f} med={r['median']:>9.3f}"
+            f" p10={r['p10']:>9.3f} p90={r['p90']:>9.3f}"
+            f" skew={r['skew']:>7.2f} ac1={r['ac1']:>6.2f}")
+
+    log("")
+    log("=== 扣除趋势基线后 |超额IC| 前 10（长 horizon 注意 n） ===")
+    top = (out.filter((~pl.col("is_control")) & pl.col("ic_excess").is_finite())
+           .sort(pl.col("ic_excess").abs(), descending=True).head(10))
+    for r in top.iter_rows(named=True):
+        log(f"  {r['name']:<26} h={r['horizon']:>5}m excess={r['ic_excess']:+.4f}"
+            f" raw={r['ic_all']:+.4f} n={r['n_eval']} 同号={r['sign_consistent']}")
 
     log("")
     log("=== 各周期场景中 |IC| 排名前 8（负控除外） ===")
