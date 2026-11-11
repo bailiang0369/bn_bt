@@ -955,7 +955,7 @@ def _decode_logs(raw):
     """kaggle kernels logs 返回 JSON 数组 [{stream_name,time,data},...]，
     也可能带前导逗号或逐行对象，统一解码为纯文本。"""
     import json as _json
-    raw = raw.strip()
+    raw = (raw or "").strip()
     if not raw:
         return ""
     for candidate in (raw, raw.lstrip(",")):
@@ -980,9 +980,10 @@ def _decode_logs(raw):
 
 
 def _logs(slug, parse=False):
+    # Windows 控制台默认 GBK，kaggle CLI 输出是 UTF-8：不解码会 UnicodeDecodeError
     out = subprocess.run(["kaggle", "kernels", "logs", slug],
-                         capture_output=True, text=True).stdout
-    text = _decode_logs(out)
+                         capture_output=True, encoding="utf-8", errors="replace").stdout
+    text = _decode_logs(out or "")
     print(text)
     if parse:
         print("=== 关键指标 ===")
@@ -991,7 +992,8 @@ def _logs(slug, parse=False):
             if not s:
                 continue
             if any(k in s for k in ("comb@", "基准", "准确率", "AUC", "ACC",
-                                    "选择性", "覆盖率", "best_iteration", "差值", "结论")):
+                                    "选择性", "覆盖率", "best_iteration", "差值", "结论",
+                                    "检验", "假阳性", "触发单", "结论", "桶=")):
                 print("  ", s)
 
 
