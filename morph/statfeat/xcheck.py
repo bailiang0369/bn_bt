@@ -53,6 +53,23 @@ MIN_N = 60          # 桶内最少成交单
 WATCH = ("pos_q", "cvd_slope_q", "cvd_x_dir", "body_q")
 
 
+def resolve_pred(p: str) -> str:
+    """kernel_sources 的挂载目录名不总是等于 slug，找不到就全局搜一遍。"""
+    if p and os.path.exists(p):
+        return p
+    import glob
+    cand = sorted(glob.glob("/kaggle/input/**/h3_gate_pred.parquet", recursive=True))
+    if cand:
+        log(f"[pred] 未找到 {p} → 自动定位 {cand[0]}")
+        return cand[0]
+    found = []
+    for root, _dirs, files in os.walk("/kaggle/input"):
+        for f in files:
+            if f.endswith(".parquet"):
+                found.append(os.path.join(root, f))
+    raise SystemExit(f"[pred] 找不到 h3_gate_pred.parquet。input 下的 parquet：{found[:20]}")
+
+
 def bucket_table(lab: np.ndarray, y: np.ndarray, base: float,
                  seg: np.ndarray) -> list[dict]:
     out = []
@@ -96,7 +113,8 @@ def main() -> None:
     dims = build_dims(df)
     ct_raw = df["close_time"].to_numpy().astype(np.int64)
 
-    pred = pl.read_parquet(a.pred).filter(pl.col("split") == "time").sort("close_time")
+    pred_path = resolve_pred(a.pred)
+    pred = pl.read_parquet(pred_path).filter(pl.col("split") == "time").sort("close_time")
     ct = pred["close_time"].to_numpy().astype(np.int64)
     log(f"[pred] rows={pred.height:,}  列={pred.columns}")
 
