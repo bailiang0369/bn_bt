@@ -191,7 +191,40 @@ def main() -> None:
                           f"{',同号' if r['sign_consistent'] else ''})" for r in best)
             log(f"    |p-.5|层{L} (n={int(m.sum())}, 层内基准={b_l * 100:.2f}%): {s}")
 
-    # ---------- 3. 结论
+    # ---------- 3. 时间外推：前半段选规则 → 后半段验证（唯一可采信的执行口径）
+    log("")
+    log("=== 3. 时间外推：test 前半选「排除桶」→ 后半独立验证 ===")
+    log("（第 1 节是在同一段里事后挑桶，必带后视；只有这段通过才算真的）")
+    dt = pred["close_time"].to_numpy()[idx] // 86_400_000
+    udays = np.unique(dt)
+    mid = udays[len(udays) // 2]
+    hmask = dt <= mid
+    tmask = ~hmask
+    log(f"  前半 {int(hmask.sum())} 单（胜率 {win[hmask].mean() * 100:.2f}%）| "
+        f"后半 {int(tmask.sum())} 单（胜率 {win[tmask].mean() * 100:.2f}%）")
+    for k in WATCH:
+        if k not in dim:
+            continue
+        lab = dim[k][idx]
+        nh = int(hmask.sum())
+        rows = bucket_table(lab[hmask], win[hmask].astype(np.float64),
+                            float(win[hmask].mean()),
+                            np.minimum(np.arange(nh) * N_SEG // max(nh, 1), N_SEG - 1))
+        bad = [r["bucket"] for r in rows if r["gap_pp"] <= -3.0 and r["n"] >= 100]
+        if not bad:
+            log(f"  {k:<14} 前半无可排除桶（需 ≤-3pp 且 n≥100）")
+            continue
+        keep = tmask & ~np.isin(lab, bad)
+        if keep.sum() < 200:
+            log(f"  {k:<14} 排除桶 {bad} 后后半仅 {int(keep.sum())} 单，样本不足")
+            continue
+        p0, p1 = float(win[tmask].mean()), float(win[keep].mean())
+        n0, n1 = int(tmask.sum()), int(keep.sum())
+        log(f"  {k:<14} 前半排除 {bad} → 后半 {p0 * 100:.2f}%({n0}) → "
+            f"{p1 * 100:.2f}%({n1})  **{p1 - p0:+.2f}pp**，"
+            f"剔除 {n0 - n1} 单（{(n0 - n1) / n0 * 100:.1f}%）")
+
+    # ---------- 4. 结论
     log("")
     if any_gain:
         log("【结论】条件桶在触发单上**有**分化（见 * 标记）。"
