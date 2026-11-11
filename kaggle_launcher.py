@@ -69,6 +69,16 @@ PROJECTS = {
         env={"OFFSETS": "0,60,120", "SEEDS": "42,43", "ROUNDS": "60",
              "TRAIN_STRIDE": "2"},
     ),
+    # Stoch「指标趋势线突破」（用户实盘画法）：斜率是否决定延续性、到极值要多久
+    # 纯统计，CPU；数据（ETHUSDT 1m）在 kernel 内从 GitHub Release 拉，不占本地带宽
+    "kdtrend": dict(
+        slug="byh850515/ethusdt-stoch-trendline",
+        title="ETHUSDT Stoch Trendline Breakout",
+        entry="morph.kd_trendline",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "ETHUSDT", "YEARS": "2024,2025,2026", "MINS": "1,5"},
+    ),
     # 波动率分桶：低波动期是否更好预测、是否该只在低波动档下单
     "volbkt": dict(
         slug="byh850515/btcusdt-vol-bucket",
