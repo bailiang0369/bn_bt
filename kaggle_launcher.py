@@ -717,6 +717,18 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2",
              "OUT": "/kaggle/working/wf_monthly.csv"},
     ),
+    # W1 复跑：只加 ROLL_OUT=1，把逐日滚动胜率序列打进日志（不落 parquet、不下载产物）。
+    # SEEDS=42 与 wf_eval.log 的原始 W1 保持一致，用于画覆盖 2026-01~10 的完整滚动曲线。
+    "wfevalroll": dict(
+        slug="byh850515/btcusdt-h3-walkforward-rolling",
+        title="BTCUSDT H3 Walk Forward Rolling",
+        entry="morph.wf_eval",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SEEDS": "42", "ROUNDS": "2000", "KLINE_FROM": "2025",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10", "ES_FRAC": "0.2",
+             "ROLL_OUT": "1", "OUT": "/kaggle/working/wf_monthly_roll.csv"},
+    ),
     # W2：长 horizon 的实盘口径（h=15/30/60，盘口 184 列原样，只改标签）。
     # 目的：在换特征源之前，先确认「盘口在长 horizon 是否彻底没戏」
     "wf15": dict(

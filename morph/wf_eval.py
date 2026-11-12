@@ -94,7 +94,7 @@ def main() -> None:
     if not months:
         raise SystemExit("窗口为空，检查 START_MONTH/END_MONTH")
 
-    rows, all_s, all_y, all_d = [], [], [], []
+    rows, all_s, all_y, all_d, all_ct, all_ym = [], [], [], [], [], []
     for m in months:
         tr_all = wide.filter(pl.col("ym") < m)
         te = wide.filter(pl.col("ym") == m)
@@ -121,6 +121,8 @@ def main() -> None:
         all_s.append(s)
         all_y.append(y)
         all_d.append(days)
+        all_ct.append(te["close_time"].to_numpy())
+        all_ym.append(te["ym"].to_numpy())
         log(f"[{m}] train={tr_all.height:,} test={te.height:,}({nd}天) AUC={rows[-1]['auc']:.4f}"
             f" @日均{TARGET_TPD}单={a15 * 100:.2f}%(K={TARGET_TPD * nd})"
             f" 每天top15={dm * 100:.2f}%(±{ds * 100:.1f}pp)")
@@ -147,6 +149,52 @@ def main() -> None:
     if OUT:
         pl.DataFrame(rows).write_csv(OUT)
         log(f"月度明细已落盘: {OUT}")
+
+    # 逐 bar 滚动胜率序列：只为看「坏窗口有多长」，不下载 parquet，直接把压缩序列打进日志。
+    # 选单口径与上面的主判据一致（每月按 |score| 取 15×天数 单），故属评估口径、非可执行信号。
+    if os.environ.get("ROLL_OUT", "0") not in ("0", "", "false", "False"):
+        ct = np.concatenate(all_ct)
+        ym = np.concatenate(all_ym)
+        sel = np.zeros(len(s), dtype=bool)
+        for m in months:
+            part = np.where(ym == m)[0]
+            if not len(part):
+                continue
+            k = min(TARGET_TPD * len(np.unique(d[part])), len(part))
+            sel[part[np.argsort(-np.abs(s[part]))[:k]]] = True
+        w_sel = ((s[sel] > 0).astype(int) == y[sel]).astype(float)
+        day_sel = ge.day_id(ct[sel])
+        grid = np.arange(int(d.min()), int(d.max()) + 1)
+        cnt = np.bincount(day_sel - grid[0], minlength=len(grid)).astype(float)
+        wn = np.bincount(day_sel - grid[0], weights=w_sel, minlength=len(grid))
+
+        def roll(win_days, min_trades):
+            c = np.convolve(cnt, np.ones(win_days), mode="full")[:len(grid)]
+            w = np.convolve(wn, np.ones(win_days), mode="full")[:len(grid)]
+            out = np.full(len(grid), np.nan)
+            j = slice(win_days - 1, None)
+            out[j] = np.where(c[j] >= min_trades,
+                              w[j] / np.maximum(c[j], 1) * 100, np.nan)
+            return out
+
+        r7, r30 = roll(7, 10), roll(30, 50)
+        tday = grid.astype("datetime64[D]").astype(str)
+
+        def longest_below(a):
+            best = cur = 0
+            for v in np.nan_to_num(a, nan=101.0) < 50:
+                cur = cur + 1 if v else 0
+                best = max(best, cur)
+            return best
+
+        print(f"ROLLSUM nsel={int(sel.sum())} overall={w_sel.mean()*100:.2f}% "
+              f"r7_min={np.nanmin(r7):.2f} r7_below={np.nanmean(r7 < 50)*100:.2f}% "
+              f"r7_longest={longest_below(r7)}d "
+              f"r30_min={np.nanmin(r30):.2f} r30_below={np.nanmean(r30 < 50)*100:.2f}% "
+              f"r30_longest={longest_below(r30)}d")
+        for i, ds in enumerate(tday):
+            f = lambda v: "nan" if np.isnan(v) else f"{v:.2f}"
+            print(f"ROLL|{ds}|{int(cnt[i])}|{int(wn[i])}|{f(r7[i])}|{f(r30[i])}")
     log("DONE")
 
 
