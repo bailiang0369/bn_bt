@@ -783,6 +783,30 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "OUT": "/kaggle/working/kline_long_h30_5s.csv"},
     ),
+    # 赔率驱动的两个补测（2026-11-12）：小所 10m 0.828（平衡 54.71%）、ETH 30m 0.853（平衡 53.97%）。
+    # 这两档此前只有 3 窗均值 / 完全未测，需用同一套 10 个月 walk-forward + 5 seed 口径确认。
+    "klinelong10s": dict(
+        slug="byh850515/btcusdt-kline-long-h10-5seed",
+        title="BTCUSDT Kline Long H10 5seed",
+        entry="morph.kline_long",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"HORIZON": "10", "SEEDS": "42,43,44,45,46", "ROUNDS": "2000",
+             "KLINE_FROM": "2020", "WIN_DAYS": "730",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "OUT": "/kaggle/working/kline_long_h10_5s.csv"},
+    ),
+    "klinelong_eth30s": dict(
+        slug="byh850515/ethusdt-kline-long-h30-5seed",
+        title="ETHUSDT Kline Long H30 5seed",
+        entry="morph.kline_long",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "ETHUSDT", "HORIZON": "30", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "KLINE_FROM": "2020", "WIN_DAYS": "730",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "OUT": "/kaggle/working/kline_long_eth_h30_5s.csv"},
+    ),
     # L2：h15 / h30 / 融合三配置，按实盘验收判据（总体≥63/65、滚动100期≥50、月度≥50）
     "klinefuse": dict(
         slug="byh850515/btcusdt-kline-fuse-h15-h30",
