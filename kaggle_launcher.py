@@ -954,6 +954,17 @@ PROJECTS = {
         env={"KLINE_FROM": "2025",
              "PRED": "/kaggle/input/btcusdt-h3-gate/h3_gate_pred.parquet"},
     ),
+    # 仓位分配：固定每天 15 单不变，只比「每单下注多少」（等权 / |q−0.5| / Kelly）。
+    # 先出十等分校准曲线，再按预注册判据（夏普≥1.2×、回撤不更深、有效注数≥5）判 GO/STOP。
+    "weight": dict(
+        slug="byh850515/btcusdt-weight-eval",
+        title="BTCUSDT Weight Eval",
+        entry="orderbook.weight_eval",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"SEEDS": "42,43,44", "ROUNDS": "2000", "TPD": "15",
+             "MIN_NEFF": "5", "SHARPE_GAIN": "1.2", "BOOT": "2000"},
+    ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
     # 只把统计打到 stdout + 一个小 json，**不落大数据产物**
     "ethdiag": dict(
