@@ -262,7 +262,7 @@ def _components(s: np.ndarray, ctx: dict, med: dict) -> dict:
     n = len(s)
     p3 = np.zeros(n, bool)
     if n > 2:
-        p3[2:] = (sg[2:] == sg[1:]) & (sg[1:] == sg[:-1])
+        p3[2:] = (sg[2:] == sg[1:-1]) & (sg[1:-1] == sg[:-2])
     tr = np.sign(ctx["ret240"])
     return {
         "L": sg > 0, "S": sg < 0, "p3": p3,
@@ -373,7 +373,6 @@ def report(tag: str, fset: str, recs: list[dict], months: int) -> dict:
     log(f"[{tag}] 特征集={fset:<4} 月={len(recs)} AUC(test)={auc:.4f} "
         f"AUC(val)={aucv:.4f} base_rate={br * 100:.2f}%")
     print(f"{HDR}")
-    best = {}
     for q in Q_VAR:
         print(f"  --- 分位 q={q}% ---")
         for name, keys in VARIANTS:
@@ -387,10 +386,7 @@ def report(tag: str, fset: str, recs: list[dict], months: int) -> dict:
                 idx = _pick(m)
                 rows.append(None if len(idx) < MIN_N else
                             dict(n=len(idx), win=_win(r["st"], r["y"], idx)))
-            a = _agg(rows, nd_all)
-            if a:
-                best[name] = max(best.get(name, (0, None)), (a["win"], a), key=lambda x: x[0])
-            print(f"{name:>12}{_fmt(a)}")
+            print(f"{name:>12}{_fmt(_agg(rows, nd_all))}")
     # 去重叠口径：base 与 trend+p3（cooldown = horizon）
     h_bars = recs[0].get("h_bars") if recs and "h_bars" in recs[0] else None
     print(f"  --- 去重叠（cooldown=horizon={h_bars} 根）---")
@@ -407,7 +403,6 @@ def report(tag: str, fset: str, recs: list[dict], months: int) -> dict:
                          dict(n=len(idx), win=_win(r["st"], r["y"], idx)))
         print(f"{name + '@noov':>12}{_fmt(_agg(rows2, nd_all))}")
     print()
-    return best
 
 
 def run_config(df1m: pl.DataFrame, minutes: int, horizon: int) -> None:
