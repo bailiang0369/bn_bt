@@ -986,12 +986,27 @@ PROJECTS = {
     # 每月 train730d → val30d 定 |score| 分位阈值 → test 该月逐 bar 触发。
     # 基础 K 尺度与 horizon 匹配：30m 用 1m/5m、60m 用 1m/5m；特征都在该尺度定义。
     "klinethr": dict(
-        slug="byh850515/btcusdt-kline-thr-wf",
+        # slug 必须与 title 推导出的 clean-url slug 完全一致，否则 kaggle push 返回 409
+        slug="byh850515/btcusdt-kline-threshold-wf",
         title="BTCUSDT Kline Threshold WF",
         entry="morph.kline_thr_wf",
         enable_internet=True,
         dataset_sources=[],
         env={"SYMBOL": "BTCUSDT", "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "WIN_DAYS": "730", "VAL_DAYS": "30", "SEEDS": "42,43,44",
+             "KLINE_FROM": "2020"},
+    ),
+
+    # v2：以「提升胜率」为目标的过滤网格实验（现货基差特征 + 单边/持续性/趋势/波动过滤
+    # + 去重叠 + 多周期共振）。34 个月样本，替代 v1 只有 10 个月、结论不够稳的问题。
+    "klinethr2": dict(
+        # slug 必须与 title 推导出的 clean-url slug 完全一致，否则 kaggle push 返回 409
+        slug="byh850515/btcusdt-kline-threshold-wf-2",
+        title="BTCUSDT Kline Threshold WF 2",
+        entry="morph.kline_thr_wf2",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "START_MONTH": "2024-01", "END_MONTH": "2026-10",
              "WIN_DAYS": "730", "VAL_DAYS": "30", "SEEDS": "42,43,44",
              "KLINE_FROM": "2020"},
     ),
@@ -1099,7 +1114,14 @@ def run(project, push, wait, logs, parse, overrides=None):
     d = stage(project, overrides)
     print(f"[stage] {d}")
     if push:
-        subprocess.run(["kaggle", "kernels", "push", "-p", d], check=True)
+        r = subprocess.run(["kaggle", "kernels", "push", "-p", d],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            print("[!] kaggle push 失败:")
+            print((r.stdout or "").strip())
+            print((r.stderr or "").strip())
+            raise SystemExit(1)
+        print((r.stdout or "").strip())
     if wait:
         ok = _poll(cfg["slug"])
         if not ok:
