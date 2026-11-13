@@ -59,7 +59,7 @@ PAYOUT = 0.8
 BREAKEVEN = 1.0 / (1.0 + PAYOUT)      # 55.56%：低于此线 EV 必为负
 Q_REF = (0.5, 1, 2, 3)               # base 变体的分位参考
 Q_VAR = (1, 2)                       # 变体网格评估用的分位
-MIN_N = 30                           # 单月单量低于此值不参与月度统计
+MIN_N = 10                           # 单月单量低于此值不参与月度统计（q=1% 组合过滤后单量很小）
 CONFIGS = [(5, 30), (5, 60), (5, 120), (5, 240)]   # 5m 基础；v1 的 1m 基础无用，砍掉
 CONSENSUS = [((5, 30), (5, 60)), ((5, 60), (5, 120)), ((5, 60), (5, 240))]
 CTX_KEYS = ("rv60", "ret240", "ret60", "volz", "er60")
@@ -302,14 +302,14 @@ def _agg(rows: list[dict], nd_all: int) -> dict | None:
 
 def _fmt(a: dict | None) -> str:
     if a is None:
-        return f"{'-':>8}{'-':>7}{'-':>9}{'-':>8}{'-':>8}{'-':>8}{'-':>7}"
-    return (f"{a['n']:>8,}{a['per_day']:>7.1f}{a['win'] * 100:>8.2f}%"
+        return f"{'-':>10}{'-':>8}{'-':>7}{'-':>9}{'-':>8}{'-':>8}{'-':>8}{'-':>7}"
+    return (f"{a['n']:>10,}{a['per_day']:>8.1f}{a['win'] * 100:>8.2f}%"
             f"{(1 + PAYOUT) * a['win'] - 1:>+8.3f}"
             f"{a['months_ok']:>5}/{a['nmon']:<2}{a['mn'] * 100:>7.2f}%{a['sd'] * 100:>6.2f}%")
 
 
-HDR = (f"{'变体':>12}{'单量':>8}{'日均':>7}{'胜率':>9}{'EV':>8}"
-       f"{'胜线月':>8}{'月min':>8}{'月std':>7}")
+HDR = (f"{'variant':>10}{'n':>8}{'/day':>7}{'win%':>9}{'EV':>8}"
+       f"{'mon':>8}{'min%':>8}{'std%':>7}")
 
 
 # ---------------------------------------------------------------- walk-forward
@@ -386,7 +386,7 @@ def report(tag: str, fset: str, recs: list[dict], months: int) -> dict:
                 idx = _pick(m)
                 rows.append(None if len(idx) < MIN_N else
                             dict(n=len(idx), win=_win(r["st"], r["y"], idx)))
-            print(f"{name:>12}{_fmt(_agg(rows, nd_all))}")
+            print(f"{name:>10}{_fmt(_agg(rows, nd_all))}")
     # 去重叠口径：base 与 trend+p3（cooldown = horizon）
     h_bars = recs[0].get("h_bars") if recs and "h_bars" in recs[0] else None
     print(f"  --- 去重叠（cooldown=horizon={h_bars} 根）---")
@@ -401,7 +401,7 @@ def report(tag: str, fset: str, recs: list[dict], months: int) -> dict:
             idx = _pick(m, cooldown=h_bars or 1)
             rows2.append(None if len(idx) < MIN_N else
                          dict(n=len(idx), win=_win(r["st"], r["y"], idx)))
-        print(f"{name + '@noov':>12}{_fmt(_agg(rows2, nd_all))}")
+        print(f"{name + '@noov':>14}{_fmt(_agg(rows2, nd_all))}")
     print()
 
 
@@ -429,7 +429,7 @@ def run_config(df1m: pl.DataFrame, minutes: int, horizon: int) -> None:
 
 def run_consensus() -> None:
     log("多周期共振（同基础尺度，分数同向且各自过 q 分位）")
-    print(f"{'共振对':>18}{'分位':>6}{HDR}")
+    print(f"{'pair':>16}{'q':>4}{HDR}")
     for t1, t2 in CONSENSUS:
         k1, k2 = f"m{t1[0]}h{t1[1]}", f"m{t2[0]}h{t2[1]}"
         if k1 not in SCORES or k2 not in SCORES:
@@ -454,7 +454,7 @@ def run_consensus() -> None:
                 rows.append(None if len(idx) < MIN_N else
                             dict(n=len(idx), win=_win(s1, y, idx)))
             nd_all = sum(r["nd"] for r in SCORES[k1].values())
-            print(f"{k1 + '&' + k2:>18}{q:>5}%{_fmt(_agg(rows, nd_all))}")
+            print(f"{k1 + '&' + k2:>16}{q:>3}%{_fmt(_agg(rows, nd_all))}")
     print()
 
 
