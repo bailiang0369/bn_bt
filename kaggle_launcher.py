@@ -980,6 +980,21 @@ PROJECTS = {
         env={"SEED": "42", "ROUNDS": "400", "TARGET_TPD": "15",
              "OUT": "/kaggle/working/eth_diag.json"},
     ),
+    # 长周期 K 线 walk-forward：**固定阈值触发**（不控单量）vs 强制@40单/天。
+    # 2026-11-13 离线发现：ETH 上 val top2% 阈值 → test 30m 62.0%、60m 62.6%；
+    # 「强制每天 N 单」会硬塞低置信单、压低胜率。本项在 BTC 2020+ 全量逐月复核：
+    # 每月 train730d → val30d 定 |score| 分位阈值 → test 该月逐 bar 触发。
+    # 基础 K 尺度与 horizon 匹配：30m 用 1m/5m、60m 用 1m/5m；特征都在该尺度定义。
+    "klinethr": dict(
+        slug="byh850515/btcusdt-kline-thr-wf",
+        title="BTCUSDT Kline Threshold WF",
+        entry="morph.kline_thr_wf",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "WIN_DAYS": "730", "VAL_DAYS": "30", "SEEDS": "42,43,44",
+             "KLINE_FROM": "2020"},
+    ),
 }
 
 
