@@ -964,7 +964,7 @@ PROJECTS = {
         entry="orderbook.weight_eval",
         enable_internet=True,
         dataset_sources=[],
-        env={"SEEDS": "42,43,44", "ROUNDS": "2000", "TPD": "15",
+        env={"SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TPD": "15",
              "MIN_NEFF": "5", "SHARPE_GAIN": "1.2", "BOOT": "2000"},
     ),
     # D0：ETH 为什么比 BTC 差（机制诊断）。同窗口同特征同口径，1 seed；
