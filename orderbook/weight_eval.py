@@ -12,8 +12,10 @@
 
 口径（与 `orderbook/train.py` 完全一致，保证 66.94% 那个数字可比）
 ----
-- 数据：dataset `btcusdt-orderbook-features` 的 `BTCUSDT.parquet`（盘口 185 列 + close）
-- target：按 (close_time − H·60s) 回连 t+H 的 close，涨=1
+- 数据：`BTCUSDT.parquet`（盘口 185 列 + close）。**2026-11-13 起 Kaggle 数据集
+  `byh850515/btcusdt-orderbook-features` 已不可用（403）**，故取数三级回退：
+  /kaggle/input 挂载 → GitHub Release `merged-features/BTCUSDT.parquet` → 同 Release 月度分片拼接
+- target：t+H 的 close 与 t 的 close 比，涨=1（等价于 train.py 的 join 口径）
 - 切分：时间序 64% / 16% / 20%，无 shuffle；训练段尾部 H 根因标签越界被剔除
 - 选单：static_val z = (p − p_val.mean) / p_val.std，按天取 |z| 前 15；sign(z) 定方向
 
@@ -33,11 +35,15 @@
 from __future__ import annotations
 
 import datetime as dt
+import glob
 import os
 import sys
+import time
+from pathlib import Path
 
 import numpy as np
 import polars as pl
+import requests
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -47,7 +53,13 @@ from sklearn.isotonic import IsotonicRegression  # noqa: E402
 from sklearn.metrics import roc_auc_score  # noqa: E402
 
 from orderbook.znorm_eval import (BASE, H, complete_days, day_index,  # noqa: E402
-                                  load, log, rolling_z)
+                                  log, rolling_z)
+
+GH_REPO = "bailiang0369/bn_hisdata"
+GH_API = "https://api.github.com"
+GH_TAG = os.environ.get("GH_TAG", "merged-features")
+NAME = "BTCUSDT.parquet"
+CACHE = Path("/tmp/gh_merged")
 
 PAYOUT = 0.8
 TPD = int(os.environ.get("TPD", "15"))
@@ -56,6 +68,104 @@ ROUNDS = int(os.environ.get("ROUNDS", "2000"))
 MIN_NEFF = float(os.environ.get("MIN_NEFF", "5.0"))
 SHARPE_GAIN = float(os.environ.get("SHARPE_GAIN", "1.2"))
 BOOT = int(os.environ.get("BOOT", "2000"))
+
+
+# ---------------------------------------------------------------- 取数
+def _assets(tag: str) -> dict[str, dict]:
+    """匿名配额 60/h，被限流时返回空 dict（调用方改用直链）。"""
+    h = {"Accept": "application/vnd.github+json"}
+    tok = os.environ.get("GH_TOKEN")
+    if tok:
+        h["Authorization"] = f"Bearer {tok}"
+    for i in range(3):
+        try:
+            r = requests.get(f"{GH_API}/repos/{GH_REPO}/releases/tags/{tag}",
+                             headers=h, timeout=60)
+            if r.status_code == 200:
+                out = {a["name"]: a for a in r.json()["assets"]}
+                log(f"[gh] {tag}: {len(out)} 个资产")
+                return out
+            log(f"[gh] {tag} HTTP {r.status_code}（第{i+1}次）")
+        except Exception as e:
+            log(f"[gh] {tag} 第{i+1}次失败: {e}")
+        time.sleep(3 * 2 ** i)
+    log("[gh] 列表接口不可用（多半是限流），改走确定性直链")
+    return {}
+
+
+def _stream(url: str, name: str, size: int | None = None, h: dict | None = None) -> Path:
+    """Range 续传下载到 /tmp 缓存；size 未知时用 Content-Length 判定完成。"""
+    CACHE.mkdir(parents=True, exist_ok=True)
+    dst = CACHE / name
+    if size and dst.exists() and dst.stat().st_size == size:
+        return dst
+    part = dst.with_name(dst.name + ".part")
+    for att in range(1, 9):
+        have = part.stat().st_size if part.exists() else 0
+        if size and have >= size:
+            break
+        hh = dict(h or {})
+        if have:
+            hh["Range"] = f"bytes={have}-"
+        try:
+            with requests.get(url, headers=hh, stream=True, timeout=900,
+                              allow_redirects=True) as r:
+                if r.status_code not in (200, 206):
+                    raise RuntimeError(f"HTTP {r.status_code}")
+                cl = int(r.headers.get("Content-Length") or 0)
+                total = size or (have + cl if r.status_code == 206 else cl)
+                mode = "ab" if (have and r.status_code == 206) else "wb"
+                with open(part, mode) as f:
+                    for chunk in r.iter_content(1 << 22):
+                        f.write(chunk)
+            if total and part.exists() and part.stat().st_size == total:
+                part.replace(dst)
+                return dst
+        except Exception as e:
+            got = part.stat().st_size if part.exists() else 0
+            log(f"[dl] {name} 第{att}次中断: {e}（已 {got / 1e6:.0f}MB）")
+            time.sleep(min(30, 3 * att))
+    if not part.exists() or (size and part.stat().st_size != size):
+        raise SystemExit(f"下载 {name} 未完成")
+    part.replace(dst)
+    return dst
+
+
+def _gh_get(tag: str, name: str, meta: dict | None) -> Path:
+    if meta:
+        h = {"Accept": "application/octet-stream"}
+        tok = os.environ.get("GH_TOKEN")
+        if tok:
+            h["Authorization"] = f"Bearer {tok}"
+        url = f"{GH_API}/repos/{GH_REPO}/releases/assets/{meta['id']}"
+        log(f"[dl] {name} {int(meta['size']) / 1e6:.0f}MB（asset API）")
+        try:
+            return _stream(url, name, int(meta["size"]), h)
+        except SystemExit:
+            log("[dl] asset API 失败，退直链")
+    log(f"[dl] {name}（Release 直链）")
+    return _stream(f"https://github.com/{GH_REPO}/releases/download/{tag}/{name}", name)
+
+
+def load_btcusdt() -> tuple[pl.DataFrame, str]:
+    hits = sorted(glob.glob("/kaggle/input/**/BTCUSDT.parquet", recursive=True))
+    if hits:
+        log(f"[data] 挂载 {hits[0]}")
+        return pl.read_parquet(hits[0]), "kaggle-dataset"
+
+    log("[data] /kaggle/input 无 BTCUSDT.parquet（数据集已不可用）→ GitHub merged-features")
+    a = _assets(GH_TAG)
+    if NAME in a or not a:
+        p = _gh_get(GH_TAG, NAME, a.get(NAME))
+        return pl.read_parquet(p), f"gh:{GH_TAG}/{NAME}"
+    months = sorted(n for n in a
+                    if n.startswith("merged_BTCUSDT_") and n.endswith(".parquet"))
+    if not months:
+        raise SystemExit(f"{GH_TAG} 内既无 {NAME} 也无月度分片；资产={sorted(a)[:20]}")
+    log(f"[data] 月度分片 {len(months)} 个，拼接")
+    df = pl.concat([pl.read_parquet(_gh_get(GH_TAG, n, a[n])) for n in months],
+                   how="vertical_relaxed").unique(subset=["close_time"], keep="last")
+    return df.sort("close_time"), f"gh:{GH_TAG}/monthly x{len(months)}"
 
 
 # ---------------------------------------------------------------- 工具
@@ -153,7 +263,14 @@ def report(res, tag: str) -> dict:
 
 
 def main() -> int:
-    df = load().drop_nulls()
+    raw, src = load_btcusdt()
+    # target：t+H 的 close 与 t 的 close 比（与 train.py 的 join 口径等价，前提是分钟网格连续）
+    df = raw.sort("close_time").with_columns(pl.col("close").shift(-H).alias("_fc"))
+    df = (df.with_columns((pl.col("_fc") > pl.col("close")).cast(pl.Int8).alias("target"))
+          .drop("_fc").filter(pl.col("target").is_not_null()).drop_nulls())
+    if src != "kaggle-dataset":
+        log("[warn] 走 GitHub 回退：列集可能不含 stoch/supertrend 两个派生列，"
+            "胜率绝对值要与文档 66.94% 分开看（末列特征数会打印）")
     L = df.height
     ct = df["close_time"].to_numpy()
     y = df["target"].to_numpy().astype(np.int8)
