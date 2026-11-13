@@ -34,8 +34,11 @@ q = 所选方向的胜率估计：raw 用 p（方向为跌时取 1−p），iso 
        且最大回撤不比等权更深，且有效注数 1/Σŵ² ≥ 5；B 口径方向需一致，否则 WARN。
   STOP 否则 → 保持等权。
 
-数据（2026-11-13：Kaggle 数据集 byh850515/btcusdt-orderbook-features 已 403 不可挂载）：
-  /kaggle/input 挂载 → GitHub Release merged-features/BTCUSDT.parquet → 同 Release 月度分片
+数据（2026-11-13：Kaggle 数据集 byh850515/btcusdt-orderbook-features 已 403 不可挂载，
+Release `merged-features` 也已不存在）：
+  盘口 ob_BTCUSDT.parquet（GitHub Release ob-dataset-vol8，375MB，取法与 morph/ob_kline.py 一致）
+  K 线 btcusdt_1m_full.parquet（Kaggle dataset byh850515/btcusdt-1m-full-2020）
+  两者按 close_time join → 与现役 FEATS=ob（184 列 + close 定标签）等价
 """
 from __future__ import annotations
 
@@ -61,9 +64,10 @@ from orderbook.znorm_eval import BASE, H, complete_days, day_index, log  # noqa:
 
 GH_REPO = "bailiang0369/bn_hisdata"
 GH_API = "https://api.github.com"
-GH_TAG = os.environ.get("GH_TAG", "merged-features")
-NAME = "BTCUSDT.parquet"
-CACHE = Path("/tmp/gh_merged")
+OB_TAG = os.environ.get("OB_TAG", "ob-dataset-vol8")
+OB_NAME = "ob_BTCUSDT.parquet"
+KL_NAME = os.environ.get("KL_NAME", "btcusdt_1m_full.parquet")
+CACHE = Path("/tmp/gh_ob")
 
 PAYOUT = 0.8
 TPD = int(os.environ.get("TPD", "15"))
@@ -154,25 +158,52 @@ def _gh_get(tag: str, name: str, meta: dict | None) -> Path:
     return _stream(f"https://github.com/{GH_REPO}/releases/download/{tag}/{name}", name)
 
 
-def load_btcusdt() -> tuple[pl.DataFrame, str]:
-    hits = sorted(glob.glob("/kaggle/input/**/BTCUSDT.parquet", recursive=True))
-    if hits:
-        log(f"[data] 挂载 {hits[0]}")
-        return pl.read_parquet(hits[0]), "kaggle-dataset"
+def _mounted(patterns: tuple[str, ...]) -> list[str]:
+    out: list[str] = []
+    for pat in patterns:
+        out += sorted(glob.glob(f"/kaggle/input/**/{pat}", recursive=True))
+    return out
 
-    log("[data] /kaggle/input 无 BTCUSDT.parquet（数据集已不可用）→ GitHub merged-features")
-    a = _assets(GH_TAG)
-    if NAME in a or not a:
-        p = _gh_get(GH_TAG, NAME, a.get(NAME))
-        return pl.read_parquet(p), f"gh:{GH_TAG}/{NAME}"
-    months = sorted(n for n in a
-                    if n.startswith("merged_BTCUSDT_") and n.endswith(".parquet"))
+
+def load_ob() -> pl.DataFrame:
+    """盘口 185 列（含 close_time）：优先挂载，否则走 ob-dataset-vol8 Release。"""
+    hits = _mounted((OB_NAME, "ob_BTCUSDT_*.parquet"))
+    full = [h for h in hits if Path(h).name == OB_NAME]
+    if full:
+        log(f"[ob] 挂载整包 {full[0]}")
+        return pl.read_parquet(full[0])
+    if hits:
+        log(f"[ob] 挂载分片 {len(hits)} 个，拼接")
+        return pl.concat([pl.read_parquet(h) for h in hits],
+                         how="vertical_relaxed").unique(subset=["close_time"], keep="last")
+
+    log(f"[ob] 未挂载 → GitHub {OB_TAG}")
+    a = _assets(OB_TAG)
+    if OB_NAME in a or not a:
+        return pl.read_parquet(_gh_get(OB_TAG, OB_NAME, a.get(OB_NAME)))
+    months = sorted(n for n in a if n.startswith("ob_BTCUSDT_") and n.endswith(".parquet"))
     if not months:
-        raise SystemExit(f"{GH_TAG} 内既无 {NAME} 也无月度分片；资产={sorted(a)[:20]}")
-    log(f"[data] 月度分片 {len(months)} 个，拼接")
-    df = pl.concat([pl.read_parquet(_gh_get(GH_TAG, n, a[n])) for n in months],
-                   how="vertical_relaxed").unique(subset=["close_time"], keep="last")
-    return df.sort("close_time"), f"gh:{GH_TAG}/monthly x{len(months)}"
+        raise SystemExit(f"{OB_TAG} 内无 ob_BTCUSDT*；资产={sorted(a)[:20]}")
+    log(f"[ob] 月度分片 {len(months)} 个，拼接")
+    return pl.concat([pl.read_parquet(_gh_get(OB_TAG, n, a[n])) for n in months],
+                     how="vertical_relaxed").unique(subset=["close_time"], keep="last")
+
+
+def load_kline() -> pl.DataFrame:
+    hits = _mounted((KL_NAME,))
+    if not hits:
+        raise SystemExit(f"找不到 {KL_NAME}（dataset byh850515/btcusdt-1m-full-2020 未挂载）")
+    log(f"[kline] 挂载 {hits[0]}")
+    return pl.read_parquet(hits[0]).select(["close_time", "close"])
+
+
+def load_data() -> tuple[pl.DataFrame, str]:
+    """与现役 FEATS=ob 等价：盘口 184 列 + close（close 只用于定标签）。"""
+    ob = load_ob().sort("close_time")
+    kl = load_kline().sort("close_time")
+    df = ob.join(kl, on="close_time", how="left")
+    log(f"[data] ob {ob.height:,}x{ob.width} × kline {kl.height:,} → {df.height:,}x{df.width}")
+    return df, f"gh:{OB_TAG}/{OB_NAME} + {KL_NAME}"
 
 
 # ---------------------------------------------------------------- 绩效与权重
@@ -324,17 +355,22 @@ def run_protocol(bets: dict[int, np.ndarray], keep: set[int], y: np.ndarray,
 
 
 def main() -> int:
-    raw, src = load_btcusdt()
-    df = raw.sort("close_time").with_columns(pl.col("close").shift(-H).alias("_fc"))
-    df = (df.with_columns((pl.col("_fc") > pl.col("close")).cast(pl.Int8).alias("target"))
-          .drop("_fc").filter(pl.col("target").is_not_null()).drop_nulls())
-    if src != "kaggle-dataset":
-        log("[warn] 走 GitHub 回退：列集可能不含 stoch/supertrend，"
-            "绝对胜率与文档 62.85%/66.94% 不可混比")
+    raw, src = load_data()
+    log(f"[data] src={src}")
+    df = raw.sort("close_time")
+    # target：t+H 的 close（与 morph/two_legs.add_target 同口径：连接键 close_time − H·60s）
+    fut = df.select((pl.col("close_time") - H * 60_000).alias("close_time"),
+                    pl.col("close").alias("_fut_close"))
+    df = df.join(fut, on="close_time", how="left")
+    df = (df.with_columns((pl.col("_fut_close") > pl.col("close")).cast(pl.Int8).alias("target"))
+          .drop("_fut_close")
+          .filter(pl.col("target").is_not_null() & pl.col("close").is_not_null()))
     L = df.height
     ct = df["close_time"].to_numpy()
     y = df["target"].to_numpy().astype(np.int8)
-    cols = [c for c in df.columns if c not in ("target", "close_time")]
+    # 特征 = 盘口 184 列（不含 close：close 只用于定标签，与 FEATS=ob 一致）
+    # null 不删（ob_*_vwap_* 空桶本就是 null），交给 LightGBM
+    cols = [c for c in df.columns if c not in ("target", "close_time", "close")]
     X = df.select([pl.col(c).cast(pl.Float32) for c in cols]).to_numpy()
     del df
     log(f"[data] rows={L} feats={len(cols)} 正类={y.mean():.4f} "

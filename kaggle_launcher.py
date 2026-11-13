@@ -957,13 +957,14 @@ PROJECTS = {
     # 仓位分配：固定每天 15 单不变，只比「每单下注多少」（等权 / |q−0.5| / Kelly）。
     # 先出十等分校准曲线，再按预注册判据（夏普≥1.2×、回撤不更深、有效注数≥5）判 GO/STOP。
     # 注意：数据集 byh850515/btcusdt-orderbook-features 已 403 不可挂载（2026-11-13 实测），
-    # 故不挂 dataset，改由脚本内从 bn_hisdata 的 merged-features Release 拉 BTCUSDT.parquet。
+    # Release merged-features 也已不存在 → 盘口走 ob-dataset-vol8（375MB，脚本内下载），
+    # K 线挂仍可用的 btcusdt-1m-full-2020。
     "weight": dict(
         slug="byh850515/btcusdt-weight-eval",
         title="BTCUSDT Weight Eval",
         entry="orderbook.weight_eval",
         enable_internet=True,
-        dataset_sources=[],
+        dataset_sources=["byh850515/btcusdt-1m-full-2020"],
         env={"SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TPD": "15",
              "MIN_NEFF": "5", "SHARPE_GAIN": "1.2", "BOOT": "2000"},
     ),
