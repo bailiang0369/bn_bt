@@ -1,36 +1,37 @@
 #!/usr/bin/env python3
 """固定 15 单/天不变，只改「每单下注多少」：按模型概率加权能否提升夏普？
 
-动机
-----
-现役流程是「模型打分 z → 每天取 |z| 前 15 单 → 方向 = sign(z) → **每单等额**」。
-业务已明确禁止「少下单换胜率」，所以覆盖率、单量、模型都不动；
-唯一剩下的自由度是**仓位分配**：同样 15 单里，p=0.75 的样本是否该比 p=0.57 下注更多？
+⚠️ 前视修正（2026-11-13，用户指出）
+------------------------------------
+「当天按 |z| 取前 15 单」在实盘中**做不到**：下单时当天的 bar 还没走完，
+不可能知道当天哪 15 根分数最高。此前文档里所有「按天 top15」的数字
+（含 `morph/kline_norm_eval.py` 的全局 top-K 取 u）都属于**前视口径**，
+只能当上界参照，不能当作实盘胜率。
 
-这个问题只有在 q（所选方向的实际胜率）**校准**的前提下才有正解，所以先画校准曲线，
-再模拟权重。二元期权口径：赢 +0.8×stake、输 −1×stake（80% payout，保本胜率 55.6%）。
+本脚本因此并列三种选单口径，且只有后两种可用于实盘：
+  P0  lookahead   当天 top15 by |z|              —— 前视上界（仅对照）
+  P1  fixed15     每天固定 15 个时刻（每 96 分钟）—— 零选择，单量恰 15
+  P2  roll24h     过去 24h 的 |z| 分位定阈值，当天按时间顺序触发、满 15 单即停
+                  —— 严格因果，最贴合「用之前 24 小时信息」
+P2 是主口径（GO/STOP 只看它）；P1 是「必须凑满 15 单」时的兜底；
+P0 与 P2 的胜率差 = 前视溢价，直接量化旧口径虚高了多少。
 
-口径（与 `orderbook/train.py` 完全一致，保证 66.94% 那个数字可比）
-----
-- 数据：`BTCUSDT.parquet`（盘口 185 列 + close）。**2026-11-13 起 Kaggle 数据集
-  `byh850515/btcusdt-orderbook-features` 已不可用（403）**，故取数三级回退：
-  /kaggle/input 挂载 → GitHub Release `merged-features/BTCUSDT.parquet` → 同 Release 月度分片拼接
-- target：t+H 的 close 与 t 的 close 比，涨=1（等价于 train.py 的 join 口径）
-- 切分：时间序 64% / 16% / 20%，无 shuffle；训练段尾部 H 根因标签越界被剔除
-- 选单：static_val z = (p − p_val.mean) / p_val.std，按天取 |z| 前 15；sign(z) 定方向
-
-三种权重（q = 下注方向的实际胜率，p<0.5 时 q = 1−p）：
-  eq    等额 1/15
+仓位分配问题（本脚本真正要回答的）
+----------------------------------
+同样这批单里，q=0.75 的样本是否该比 q=0.57 下注更多？只有在 q 校准的前提下才有正解。
+  eq    等额 1/n
   lin   |q − 0.5|
-  kelly clip(q·b − (1−q), 0)，b = PAYOUT（归一化后常数项无影响）
+  kelly clip(q·b − (1−q), 0)，b = PAYOUT = 0.8（80% payout，保本胜率 55.6%）
+q = 所选方向的实际胜率估计（p_up 校准后，p<0.5 时取 1−p）；校准用 val 段 isotonic，严格因果。
 
-预先写死的判据（不因结果调整）：
-  GO   当且仅当某加权方案的「日收益夏普」≥ 等权 × 1.2，
+预先写死的判据（不因结果调整）
+------------------------------
+  GO   当且仅当主口径(P2)下某加权方案的「日收益夏普」≥ 等权 × 1.2，
        且最大回撤不比等权更深，且有效注数 1/Σw² ≥ 5（防权重塌到 1~2 单）。
-  STOP 否则 → 保持等权，不要再动仓位。
+  STOP 否则 → 保持等权。
 
-边界：回测内仓位比较，未计实盘滑点/最小下注额/单场上限；校准只在 test 段验证，
-      实盘需滚动复核。另附 roll_1d 选单口径做稳健性对照（若两口径结论打架则 GO 存疑）。
+数据（2026-11-13 起 Kaggle 数据集 byh850515/btcusdt-orderbook-features 已 403）：
+  /kaggle/input 挂载 → GitHub Release merged-features/BTCUSDT.parquet → 同 Release 月度分片拼接
 """
 from __future__ import annotations
 
@@ -68,6 +69,8 @@ ROUNDS = int(os.environ.get("ROUNDS", "2000"))
 MIN_NEFF = float(os.environ.get("MIN_NEFF", "5.0"))
 SHARPE_GAIN = float(os.environ.get("SHARPE_GAIN", "1.2"))
 BOOT = int(os.environ.get("BOOT", "2000"))
+DAY_MS = 86_400_000
+BAR_MS = 60_000
 
 
 # ---------------------------------------------------------------- 取数
@@ -168,7 +171,7 @@ def load_btcusdt() -> tuple[pl.DataFrame, str]:
     return df.sort("close_time"), f"gh:{GH_TAG}/monthly x{len(months)}"
 
 
-# ---------------------------------------------------------------- 工具
+# ---------------------------------------------------------------- 绩效与权重
 def perf(a: np.ndarray) -> dict:
     """日收益序列 → 累计 / 夏普(×√365) / 最大回撤 / 最差日。"""
     a = np.asarray(a, dtype=np.float64)
@@ -212,65 +215,91 @@ def boot_p(base: np.ndarray, alt: np.ndarray, n: int, seed: int = 0) -> float:
     return float((d[idx].mean(1) <= 0).mean())
 
 
-# ---------------------------------------------------------------- 选单 + 模拟
-def simulate(ct, z, y, p_up, p_std, iso_p, k=TPD):
-    """按天取 |z| 前 k 单，返回 {scheme: 日PNL数组} + 诊断。"""
-    day = day_index(ct)
-    keep = complete_days(day)
-    pnl = {s: [] for s in SCHEMES}
-    neff = {s: [] for s in SCHEMES}
-    days, wins, nbet, pstd_sel = [], [], [], []
-    for d in np.unique(day[keep]):
-        idx = np.where((day == d) & keep)[0]
-        sel = idx[np.argsort(-np.abs(z[idx]))[:k]]
+# ---------------------------------------------------------------- 三种选单口径
+def bets_lookahead(day: np.ndarray, z: np.ndarray, k: int) -> dict[int, np.ndarray]:
+    out = {}
+    for d in np.unique(day):
+        idx = np.where(day == d)[0]
+        out[int(d)] = idx[np.argsort(-np.abs(z[idx]))[:k]]
+    return out
+
+
+def _fixed_slots(mod: np.ndarray, k: int) -> np.ndarray:
+    """当天 00:00 起每 1440/k 分钟一个时刻，取该时刻之后第一根可用 bar。"""
+    step = 1440 // k
+    sel, used = [], -1
+    for t in range(0, 1440, step):
+        j = int(np.searchsorted(mod, t))
+        while j < mod.size and j <= used:
+            j += 1
+        if j >= mod.size:
+            break
+        used = j
+        sel.append(j)
+    return np.asarray(sel, dtype=int)
+
+
+def bets_fixed15(day: np.ndarray, z: np.ndarray, ct: np.ndarray,
+                 k: int) -> dict[int, np.ndarray]:
+    """零选择：固定节拍。单量恰 k（当天数据缺失时可能少几单）。"""
+    mod_all = (ct % DAY_MS) // BAR_MS
+    out = {}
+    for d in np.unique(day):
+        idx = np.where(day == d)[0]
+        out[int(d)] = idx[_fixed_slots(mod_all[idx], k)]
+    return out
+
+
+def bets_roll24h(day: np.ndarray, z: np.ndarray, k: int,
+                 win_days: int = 1) -> dict[int, np.ndarray]:
+    """严格因果：只用**当天之前** win_days 天的 |z| 定分位阈值，当天按时间顺序触发。"""
+    out, hist = {}, []
+    for d in np.unique(day):
+        idx = np.where(day == d)[0]           # ct 已排序 → idx 天然按时间
+        if hist:
+            past = np.concatenate(hist[-win_days:])
+            thr = float(np.quantile(past, 1.0 - k / past.size))
+            cand = idx[np.abs(z[idx]) >= thr]
+            out[int(d)] = cand[:k]
+        else:                                  # 冷启动：没有历史就不下单
+            out[int(d)] = idx[:0]
+        hist.append(np.abs(z[idx]))
+    return out
+
+
+# ---------------------------------------------------------------- 模拟
+def simulate_sel(sel_list: list[np.ndarray], y: np.ndarray, p_up: np.ndarray,
+                 iso_p: np.ndarray, dirs_list: list[np.ndarray]) -> dict:
+    pnl = {s: [] for s in ("eq", "lin", "kelly", "lin_iso", "kelly_iso")}
+    neff = {s: [] for s in pnl}
+    wins = nbet = 0
+    for sel, dirs in zip(sel_list, dirs_list):
         if sel.size == 0:
             continue
-        dirs = z[sel] > 0                       # 生产口径：sign(z) 定方向
         win = dirs == (y[sel] == 1)
         q_raw = np.where(dirs, p_up[sel], 1.0 - p_up[sel])
         q_iso = np.where(dirs, iso_p[sel], 1.0 - iso_p[sel])
-        qs = {"eq": q_raw, "lin": q_raw, "kelly": q_raw,
-              "lin_iso": q_iso, "kelly_iso": q_iso}
-        for name, q in qs.items():
-            w = norm(w_eq(q) if name == "eq" else
-                     w_lin(q) if name.startswith("lin") else w_kelly(q))
-            pay = np.where(win, PAYOUT, -1.0)
-            pnl.setdefault(name, []).append(float(np.sum(w * pay)))
-            neff.setdefault(name, []).append(float(1.0 / np.sum(w ** 2)))
-        days.append(int(d))
-        wins.append(int(win.sum()))
-        nbet.append(int(sel.size))
-        pstd_sel.append(float(p_std[sel].mean()))
+        for name in pnl:
+            q = q_iso if name.endswith("_iso") else q_raw
+            f = w_eq if name == "eq" else (w_lin if name.startswith("lin") else w_kelly)
+            w = norm(f(q))
+            pnl[name].append(float(np.sum(w * np.where(win, PAYOUT, -1.0))))
+            neff[name].append(float(1.0 / np.sum(w ** 2)))
+        wins += int(win.sum())
+        nbet += int(sel.size)
     return dict(pnl={s: np.asarray(v) for s, v in pnl.items()},
                 neff={s: float(np.mean(v)) for s, v in neff.items()},
-                days=days, wins=np.asarray(wins), nbet=np.asarray(nbet),
-                pstd=np.asarray(pstd_sel))
-
-
-def report(res, tag: str) -> dict:
-    log("")
-    log(f"【{tag}】每天 top{TPD} 的仓位模拟（每单 stake 归一，日投入恒为 1 单位）")
-    log(f"{'权重':>10}{'天数':>6}{'累计':>10}{'日均':>10}{'日std':>9}"
-        f"{'夏普':>8}{'最大回撤':>11}{'最差日':>9}{'有效注数':>10}")
-    st = {}
-    for s, a in res["pnl"].items():
-        st[s] = perf(a)
-        st[s]["neff"] = res["neff"][s]
-        m = st[s]
-        log(f"{s:>10}{m['n']:>6}{m['total']:>+10.3f}{m['mean']:>+10.4f}{m['sd']:>9.4f}"
-            f"{m['sharpe']:>8.2f}{m['mdd']:>+11.3f}{m['worst']:>+9.3f}{m['neff']:>10.2f}")
-    return st
+                wins=wins, nbet=nbet)
 
 
 def main() -> int:
     raw, src = load_btcusdt()
-    # target：t+H 的 close 与 t 的 close 比（与 train.py 的 join 口径等价，前提是分钟网格连续）
     df = raw.sort("close_time").with_columns(pl.col("close").shift(-H).alias("_fc"))
     df = (df.with_columns((pl.col("_fc") > pl.col("close")).cast(pl.Int8).alias("target"))
           .drop("_fc").filter(pl.col("target").is_not_null()).drop_nulls())
     if src != "kaggle-dataset":
-        log("[warn] 走 GitHub 回退：列集可能不含 stoch/supertrend 两个派生列，"
-            "胜率绝对值要与文档 66.94% 分开看（末列特征数会打印）")
+        log("[warn] 走 GitHub 回退：列集可能不含 stoch/supertrend，"
+            "胜率绝对值与文档 66.94% 不可直接比（后者本身还是前视口径）")
     L = df.height
     ct = df["close_time"].to_numpy()
     y = df["target"].to_numpy().astype(np.int8)
@@ -278,8 +307,8 @@ def main() -> int:
     X = df.select([pl.col(c).cast(pl.Float32) for c in cols]).to_numpy()
     del df
     log(f"[data] rows={L} feats={len(cols)} 正类={y.mean():.4f} "
-        f"{dt.datetime.utcfromtimestamp(ct[0]/1000)} ~ "
-        f"{dt.datetime.utcfromtimestamp(ct[-1]/1000)}")
+        f"{dt.datetime.utcfromtimestamp(ct[0] / 1000)} ~ "
+        f"{dt.datetime.utcfromtimestamp(ct[-1] / 1000)}")
 
     k1, k2 = int(L * 0.64), int(L * 0.80)
     m_val = (ct >= ct[k1]) & (ct < ct[k2])
@@ -305,12 +334,11 @@ def main() -> int:
     log(f"[model] {len(SEEDS)} seed 平均 test AUC={roc_auc_score(y[m_te], p_up[m_te]):.4f} "
         f"iters={iters}")
 
-    # 概率→概率的保序校准（只用 val 拟合，test 应用）
     iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
     iso.fit(p_up[m_val], y[m_val])
     iso_p = iso.predict(p_up)
 
-    # ---------------- 校准曲线（针对 p_up vs 实际上涨比例） ----------------
+    # ---------------- 校准曲线 ----------------
     pv, yv = p_up[m_te], y[m_te]
     order = np.argsort(pv)
     log("")
@@ -327,24 +355,69 @@ def main() -> int:
             f"{iso_p[m_te][idx].mean():>10.4f}{p_std[m_te][idx].mean():>10.4f}")
     log("=" * 100)
 
-    # ---------------- 两种标准化口径各自模拟 ----------------
-    z_static = (p_up - p_up[m_val].mean()) / (p_up[m_val].std() + 1e-9)
-    z_roll = rolling_z(p_up, 1440)
-    bases = {"static_val(生产口径)": z_static, "roll_1d(稳健性)": z_roll}
+    # ---------------- test 段：三种选单口径 ----------------
+    ct_te, z = ct[m_te], (p_up - p_up[m_val].mean()) / (p_up[m_val].std() + 1e-9)
+    day = day_index(ct_te)
+    keep = complete_days(day)
+    days_ok = set(np.unique(day[keep]).tolist())
+    log(f"[test] 共 {len(np.unique(day))} 天，完整天 {len(days_ok)} 天")
 
-    all_res = {}
-    for tag, z in bases.items():
-        r = simulate(ct[m_te], z[m_te], y[m_te], p_up[m_te], p_std[m_te], iso_p[m_te])
-        all_res[tag] = (r, report(r, tag))
-        log(f"[{tag}] 覆盖 {len(r['days'])} 天，日均 {r['nbet'].mean():.1f} 单，"
-            f"top{TPD} 胜率={r['wins'].sum()/r['nbet'].sum()*100:.2f}%")
+    protos = {
+        "P0 当天top15(前视)": bets_lookahead(day, z, TPD),
+        "P1 固定节拍15单": bets_fixed15(day, z, ct_te, TPD),
+        "P2 过去24h阈值(因果)": bets_roll24h(day, z, TPD, win_days=1),
+    }
 
-    # 参考档：只取 5 单（会降覆盖率，仅作反例）
-    z0 = z_static[m_te]
-    r5 = simulate(ct[m_te], z0, y[m_te], p_up[m_te], p_std[m_te], iso_p[m_te], k=5)
-    st5 = perf(r5["pnl"]["eq"])
-    log(f"\n[参考·不可选] 每天 5 单等权：胜率={r5['wins'].sum()/r5['nbet'].sum()*100:.2f}% "
-        f"累计={st5['total']:+.2f} 夏普={st5['sharpe']:.2f}（覆盖率下降，业务禁止）")
+    results, stats = {}, {}
+    for tag, bets in protos.items():
+        sel_list, dirs_list = [], []
+        for d in sorted(bets):
+            if d not in days_ok:
+                continue
+            sel = bets[d]
+            sel_list.append(sel)
+            dirs_list.append(z[sel] > 0)
+        r = simulate_sel(sel_list, y[m_te], p_up[m_te], iso_p[m_te], dirs_list)
+        results[tag] = r
+        st = {}
+        log("")
+        log(f"【{tag}】{len(sel_list)} 天，日均 {r['nbet']/max(len(sel_list),1):.2f} 单，"
+            f"总胜率 {r['wins']/max(r['nbet'],1)*100:.2f}%")
+        log(f"{'权重':>10}{'天数':>6}{'累计':>10}{'日均':>10}{'日std':>9}"
+            f"{'夏普':>8}{'最大回撤':>11}{'最差日':>9}{'有效注数':>10}")
+        for s, a in r["pnl"].items():
+            m = perf(a)
+            st[s] = dict(m, neff=r["neff"][s])
+            log(f"{s:>10}{m['n']:>6}{m['total']:>+10.3f}{m['mean']:>+10.4f}{m['sd']:>9.4f}"
+                f"{m['sharpe']:>8.2f}{m['mdd']:>+11.3f}{m['worst']:>+9.3f}{r['neff'][s]:>10.2f}")
+        stats[tag] = st
+
+    # ---------------- 前视溢价 ----------------
+    acc = {t: results[t]["wins"] / max(results[t]["nbet"], 1) * 100 for t in protos}
+    log("")
+    log("=" * 100)
+    log("【前视溢价】同一模型、同一 test 段，只换选单口径的胜率")
+    for t in protos:
+        log(f"  {t:<22} 单量={results[t]['nbet']:>5d}  胜率={acc[t]:6.2f}%")
+    log(f"  → P0 − P2 = {acc['P0 当天top15(前视)']-acc['P2 过去24h阈值(因果)']:+.2f}pp "
+        f"是旧口径虚高部分；实盘只能看 P1/P2。")
+    log("=" * 100)
+
+    # ---------------- 稳健性：过去 7 天阈值 ----------------
+    b7 = bets_roll24h(day, z, TPD, win_days=7)
+    sel7, dir7 = [], []
+    for d in sorted(b7):
+        if d in days_ok:
+            sel7.append(b7[d])
+            dir7.append(z[b7[d]] > 0)
+    r7 = simulate_sel(sel7, y[m_te], p_up[m_te], iso_p[m_te], dir7)
+    st7 = {s: dict(perf(a), neff=r7["neff"][s]) for s, a in r7["pnl"].items()}
+    log("")
+    log(f"【P2b 过去7天阈值(因果)】{len(sel7)} 天，日均 {r7['nbet']/max(len(sel7),1):.2f} 单，"
+        f"胜率 {r7['wins']/max(r7['nbet'],1)*100:.2f}%")
+    for s in ("eq", "lin", "kelly", "lin_iso", "kelly_iso"):
+        log(f"  {s:<10} 累计={st7[s]['total']:+8.3f} 夏普={st7[s]['sharpe']:6.2f} "
+            f"回撤={st7[s]['mdd']:+8.3f} 有效注数={st7[s]['neff']:5.2f}")
 
     # ---------------- seed 分歧度诊断 ----------------
     log("")
@@ -355,46 +428,45 @@ def main() -> int:
         log(f"  std 第{k*20}-{(k+1)*20}%: 平均std={p_std[m_te][idx].mean():.4f} "
             f"上涨比例={yv[idx].mean()*100:.2f}%")
 
-    # ---------------- 月度稳定性（primary 口径） ----------------
-    r, st = all_res["static_val(生产口径)"]
-    best = max(("lin", "kelly", "lin_iso", "kelly_iso"),
-               key=lambda s: st[s]["sharpe"])
+    # ---------------- 月度稳定性（主口径） ----------------
+    prim = "P2 过去24h阈值(因果)"
+    r, st = results[prim], stats[prim]
+    best = max(("lin", "kelly", "lin_iso", "kelly_iso"), key=lambda s: st[s]["sharpe"])
+    dsel = [d for d in sorted(protos[prim]) if d in days_ok]
+    mon = [dt.datetime.utcfromtimestamp(d * 86400).strftime("%Y-%m") for d in dsel]
     log("")
-    log(f"【月度】等权 vs 最优加权({best}) 的月累计收益")
-    mon = [dt.datetime.utcfromtimestamp(d * 86400).strftime("%Y-%m") for d in r["days"]]
-    for m in sorted(set(mon)):
-        ii = np.array([i for i, x in enumerate(mon) if x == m])
-        log(f"  {m}: 天数={ii.size:>3}  等权={r['pnl']['eq'][ii].sum():+8.3f}  "
+    log(f"【月度·{prim}】等权 vs 最优加权({best})")
+    for mm in sorted(set(mon)):
+        ii = np.array([i for i, x in enumerate(mon) if x == mm])
+        log(f"  {mm}: 天数={ii.size:>3}  等权={r['pnl']['eq'][ii].sum():+8.3f}  "
             f"{best}={r['pnl'][best][ii].sum():+8.3f}")
 
     # ---------------- 判据 ----------------
-    base = st["eq"]
+    base, bst = st["eq"], st[best]
     bp = base["sharpe"]
-    bst = st[best]
     neff = bst["neff"]
     go = bool(bp > 0 and bst["sharpe"] >= bp * SHARPE_GAIN
               and bst["mdd"] >= base["mdd"] and neff >= MIN_NEFF)
     pb = boot_p(r["pnl"]["eq"], r["pnl"][best], BOOT)
-    # 稳健性：换 roll_1d 选单后，最优方案是否仍优于等权
-    _, st_r = all_res["roll_1d(稳健性)"]
-    rb = max(("lin", "kelly", "lin_iso", "kelly_iso"), key=lambda s: st_r[s]["sharpe"])
-    robust = bool(st_r[rb]["sharpe"] > st_r["eq"]["sharpe"])
+    bp1 = stats["P1 固定节拍15单"]
+    best1 = max(("lin", "kelly", "lin_iso", "kelly_iso"), key=lambda s: bp1[s]["sharpe"])
+    robust = bool(bp1[best1]["sharpe"] > bp1["eq"]["sharpe"])
 
     log("")
     log("=" * 100)
+    log(f"[主口径] {prim}（严格因果，实盘可执行）")
     log(f"[判据·预先写死] 加权夏普 >= 等权×{SHARPE_GAIN:.2f}、回撤不更深、"
         f"有效注数 >= {MIN_NEFF:.0f}")
     log(f"[实测] 最优={best} 夏普 {bst['sharpe']:.2f} vs 等权 {bp:.2f}"
         f"（{bst['sharpe']/bp if bp else 0:.2f}x）| 回撤 {bst['mdd']:+.3f} vs {base['mdd']:+.3f}"
         f" | 有效注数 {neff:.2f} | 配对bootstrap p={pb:.3f}")
-    log(f"[稳健性] roll_1d 口径下最优={rb} "
-        f"{st_r[rb]['sharpe']:.2f} vs 等权 {st_r['eq']['sharpe']:.2f} → "
-        f"{'方向一致' if robust else '方向相反，加权优势不成立'}")
-    log(f"[DECISION] {'GO：固定单量内按 q 加权能显著提升夏普' if go else 'STOP：加权没有稳定优势，保持等权'}")
+    log(f"[稳健性] P1 固定节拍下最优={best1} "
+        f"{bp1[best1]['sharpe']:.2f} vs 等权 {bp1['eq']['sharpe']:.2f} → "
+        f"{'方向一致' if robust else '方向相反'}")
+    log(f"[DECISION] {'GO：固定单量内按 q 加权能提升夏普' if go else 'STOP：加权没有稳定优势，保持等权'}")
     if go and not robust:
-        log("[WARN] 换选单口径后加权优势消失 → GO 存疑，建议按 STOP 处理")
-    log("边界：回测内仓位比较，未计实盘滑点/最小下注额/单场上限；")
-    log("      p 的校准只在 test 段验证，实盘需用滚动校准复核。")
+        log("[WARN] 换选单口径后加权优势消失 → GO 存疑，按 STOP 处理")
+    log("边界：回测内仓位比较，未计实盘滑点/最小下注额/单场上限；q 的校准只在 test 段验证。")
     log("DONE")
     return 0
 
