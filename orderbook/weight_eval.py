@@ -485,6 +485,29 @@ def main() -> int:
         "文档口径：全局top15×天数 66.94%、每日top15 59.24%、现役阈值 62.85%")
     log("=" * 100)
 
+    # ---------------- 机制诊断：触发单内 q 是否真有分辨力 ----------------
+    qs, ws = [], []
+    for d in sorted(protos["A 现役阈值(因果)"]):
+        if d not in keep:
+            continue
+        sel = protos["A 现役阈值(因果)"][d]
+        if sel.size == 0:
+            continue
+        dirs = p_te[sel] > 0.5
+        qs.append(np.where(dirs, p_te[sel], 1.0 - p_te[sel]))
+        ws.append((dirs == (y_te[sel] == 1)).astype(np.int8))
+    q_all, w_all = np.concatenate(qs), np.concatenate(ws)
+    o = np.argsort(q_all)
+    log("")
+    log("【机制诊断·A】触发单内按 q 五分位分层的实际胜率（加权重有没有用的前提）")
+    for k in range(5):
+        idx = o[k * len(o) // 5:(k + 1) * len(o) // 5]
+        log(f"  q 第{k+1}/5 档: 平均q={q_all[idx].mean():.4f} "
+            f"实际={w_all[idx].mean()*100:6.2f}% "
+            f"差={(w_all[idx].mean()-q_all[idx].mean())*100:+6.2f}pp")
+    log(f"  单调性：最高档−最低档 实际胜率差 "
+        f"{(w_all[o[-len(o)//5:]].mean()-w_all[o[:len(o)//5]].mean())*100:+.2f}pp")
+
     # ---------------- 月度（主口径 A） ----------------
     prim = "A 现役阈值(因果)"
     r, st = results[prim], results[prim]["stat"]
@@ -509,7 +532,7 @@ def main() -> int:
 
     log("")
     log("=" * 100)
-    log(f"[主口径] {prim}（逐 bar 独立判断，无日内排名；日均 {r['nbet']/max(len(dsel),1):.1f} 单）")
+    log(f"[主口径] {prim}（逐 bar 独立判断，无日内排名；日均 {r['nbet']/max(len(keep),1):.1f} 单）")
     log(f"[判据·预先写死] 加权夏普 >= 等权×{SHARPE_GAIN:.2f}、回撤不更深、有效注数 >= {MIN_NEFF:.0f}")
     log(f"[实测] 最优={best} 夏普 {bst['sharpe']:.2f} vs 等权 {bp:.2f}"
         f"（{bst['sharpe']/bp if bp else 0:.2f}x）| 回撤 {bst['mdd']:+.1f} vs {base['mdd']:+.1f}"
