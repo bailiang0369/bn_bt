@@ -617,6 +617,16 @@ PROJECTS = {
         env={"HORIZON": "3", "SEEDS": "42,43,44", "ROUNDS": "2000", "TPD": "15",
              "EPS_LIST": "0,0.00005,0.0001"},
     ),
+    # 时序动态特征：184 列快照 -> 加速度差分/3 分钟滚动。唯一没榨过的信息维度。
+    "h3lagfeat": dict(
+        slug="byh850515/btcusdt-h3-lagfeat",
+        title="BTCUSDT H3 Lagfeat",
+        entry="morph.h3_lagfeat",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"HORIZON": "3", "SEEDS": "42,43,44", "ROUNDS": "2000", "TPD": "15",
+             "SETS": "base,d1,d1m3"},
+    ),
     # 跨域接入两腿基线：口径照抄 twolegs，只把订单簿腿换成 ob / ob+cross 做对照
     "h3fuse": dict(
         slug="byh850515/btcusdt-h3-fuse-cross",
