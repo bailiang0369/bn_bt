@@ -652,6 +652,19 @@ PROJECTS = {
              "SEEDS": "42,43,44,45,46", "ROUNDS": "2000",
              "TPD_LIST": "120,60,30,15,10,5,2"},
     ),
+    # bar 尺度隔离（2026-11-15）：外部 notebook h=10 报 58.3%，用的是 5m bar；我们全部
+    # 历史实验都是 1m bar（h=10 = 预测 10 步、标签重叠 10 根）。同一份 K 线数据只换
+    # bar 尺度（1/5/10m），阈值纪律不变，看 4.6pp 的差距有多少来自这一条。
+    "h3bar": dict(
+        slug="byh850515/btcusdt-h3-bartf",
+        title="BTCUSDT H3 Bar Timeframe",
+        entry="morph.h3_bartf",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"FEATS": "k", "BARS": "1,5,10", "HORIZON_MIN": "10",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "KLINE_FROM": "2020",
+             "TPD_LIST": "120,60,30,15,10,5,2"},
+    ),
     # 跨域接入两腿基线：口径照抄 twolegs，只把订单簿腿换成 ob / ob+cross 做对照
     "h3fuse": dict(
         slug="byh850515/btcusdt-h3-fuse-cross",
