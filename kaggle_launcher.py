@@ -639,6 +639,19 @@ PROJECTS = {
         env={"HORIZONS": "3,5,10,15", "SETS": "base",
              "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TPD": "15"},
     ),
+    # 等单量对照（2026-11-15）：外部 notebook 报 h=10 58.3%@12.7单/天，我们 h=10 是
+    # 53.68%@48.6单/天。胜率是单量的函数（§18），不同单量不能比。这里对每档 tpd
+    # 各自在 val 定阈值，输出 h=3 与 h=10 的「单量-胜率」曲线，把特征差异和口径差异分离。
+    "h3eq": dict(
+        slug="byh850515/btcusdt-h3-equal-tpd",
+        title="BTCUSDT H3 Equal TPD Curve",
+        entry="morph.h3_lagfeat",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"HORIZONS": "3,10", "SETS": "base",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000",
+             "TPD_LIST": "120,60,30,15,10,5,2"},
+    ),
     # 跨域接入两腿基线：口径照抄 twolegs，只把订单簿腿换成 ob / ob+cross 做对照
     "h3fuse": dict(
         slug="byh850515/btcusdt-h3-fuse-cross",

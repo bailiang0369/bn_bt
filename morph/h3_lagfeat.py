@@ -55,10 +55,12 @@ HORIZONS = [int(x) for x in os.environ.get("HORIZONS", str(HORIZON)).split(",") 
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44,45,46").split(",") if s.strip()]
 ROUNDS = int(os.environ.get("ROUNDS", "2000"))
 TPD = int(os.environ.get("TPD", "15"))
+# 单量档网格（2026-11-15 加）：胜率是单量的函数（§18），**跨方案比较必须等单量**。
+# 外部 notebook 报的 58% 是 ~13 单/天，我们的 53.7% 是 ~49 单/天，不同口径不能直接比。
+TPD_LIST = [float(x) for x in os.environ.get("TPD_LIST", str(TPD)).split(",") if x.strip()]
 TRAIN_FRAC, VAL_FRAC = 0.64, 0.16
 PAYOUT = 0.808
 BARS_PER_DAY = 1440
-QUANT = 1 - TPD / BARS_PER_DAY
 SETS = [s.strip() for s in os.environ.get("SETS", "base,d1,d1m3").split(",") if s.strip()]
 T = time.time()
 
@@ -119,21 +121,29 @@ def run_one(w0: pl.DataFrame, cols0: list[str], close: np.ndarray, ct: np.ndarra
     yva, yte = y[tr1:va1], y[va1:n]
     auc_v = float(roc_auc_score(yva, pv))
     auc_t = float(roc_auc_score(yte, pt))
-    thr = float(np.quantile(np.abs(pv - .5), QUANT))
     s = pt - .5
-    hit = np.abs(s) >= thr
-    nb = int(hit.sum())
-    if nb < 100:
-        log(f"  [{mode}@h{hz}] 单量太少 {nb}")
+    days_te = days[va1:n]
+    nd_te = len(np.unique(days_te))
+    bands = []
+    for tpd in TPD_LIST:
+        # 阈值只吃 val 的 |p-0.5| 分布；名义 tpd 只决定分位，实际单量看 test 触发率
+        thr = float(np.quantile(np.abs(pv - .5), 1 - tpd / BARS_PER_DAY))
+        hit = np.abs(s) >= thr
+        nb = int(hit.sum())
+        if nb < 50:
+            continue
+        ww = ((s[hit] > 0).astype(int) == yte[hit]).astype(np.int8)
+        win = float(ww.mean())
+        dd = days_te[hit]
+        mons = [float(ww[dd == u].mean()) for u in np.unique(dd) if (dd == u).sum() >= 50]
+        bands.append(dict(tpd=tpd, thr=thr, n=nb, per_day=nb / nd_te, win=win,
+                          ev=PAYOUT * win - (1 - win),
+                          monmin=min(mons) if mons else win))
+    if not bands:
+        log(f"  [{mode}@h{hz}] 单量太少")
         return None
-    ww = ((s[hit] > 0).astype(int) == yte[hit]).astype(np.int8)
-    win = float(ww.mean())
-    dd = days[va1:n][hit]
-    mons = [float(ww[dd == u].mean()) for u in np.unique(dd) if (dd == u).sum() >= 50]
-    nd_te = len(np.unique(days[va1:n]))
     return dict(tag=f"{mode}@h{hz}", mode=mode, hz=hz, cols=len(cols), it=int(np.mean(its)),
-                auc_v=auc_v, auc_t=auc_t, per_day=nb / nd_te, win=win,
-                ev=PAYOUT * win - (1 - win), monmin=min(mons) if mons else win)
+                auc_v=auc_v, auc_t=auc_t, bands=bands)
 
 
 def main() -> None:
@@ -145,10 +155,10 @@ def main() -> None:
     close = w0["close"].to_numpy().astype(np.float64)
     ct = w0["close_time"].to_numpy()
     log(f"订单簿 {ob.height:,} 行 × {len(cols0)} 特征 | 带 close {w0.height:,} 行 | "
-        f"horizons={HORIZONS} sets={SETS} seeds={len(SEEDS)}")
+        f"horizons={HORIZONS} sets={SETS} seeds={len(SEEDS)} tpd_list={TPD_LIST}")
 
-    hdr = (f"{'特征集@h':>12}{'列数':>7}{'轮数':>6}{'AUCval':>8}{'AUCtest':>9}"
-           f"{'单/天':>7}{'胜率':>8}{'EV':>8}{'月min':>8}")
+    hdr = (f"{'特征集@h':>12}{'列数':>6}{'AUCval':>8}{'AUCtest':>9}{'名义tpd':>8}"
+           f"{'阈值':>9}{'单/天':>7}{'n':>7}{'胜率':>8}{'EV':>8}{'月min':>8}")
     print("\n" + hdr)
     rows = []
     for hz in HORIZONS:
@@ -157,30 +167,38 @@ def main() -> None:
             if r is None:
                 continue
             rows.append(r)
-            print(f"{r['tag']:>12}{r['cols']:>7}{r['it']:>6}{r['auc_v']:>8.4f}"
-                  f"{r['auc_t']:>9.4f}{r['per_day']:>7.1f}{r['win'] * 100:>7.2f}%"
-                  f"{r['ev']:>+8.3f}{r['monmin'] * 100:>7.2f}%")
+            for b in r["bands"]:
+                print(f"{r['tag']:>12}{r['cols']:>6}{r['auc_v']:>8.4f}{r['auc_t']:>9.4f}"
+                      f"{b['tpd']:>8.1f}{b['thr']:>9.5f}{b['per_day']:>7.1f}{b['n']:>7d}"
+                      f"{b['win'] * 100:>7.2f}%{b['ev']:>+8.3f}{b['monmin'] * 100:>7.2f}%")
 
-    # 同一 horizon 内比特征集（base 为基准）；跨 horizon 只看 base 的阶梯（平台选择用）
+    # 同一 horizon 内比特征集（base 为基准，比 AUC(test)）
     for hz in HORIZONS:
         same = [r for r in rows if r["hz"] == hz]
         b = [r for r in same if r["mode"] == "base"]
         if not b:
             continue
         best = max(same, key=lambda r: r["auc_t"])
-        print(f"[h={hz}] 最优 {best['tag']} cols={best['cols']} AUC={best['auc_t']:.4f} "
-              f"胜率={best['win'] * 100:.2f}% → "
-              f"ΔAUC={best['auc_t'] - b[0]['auc_t']:+.4f} "
-              f"Δ胜率={(best['win'] - b[0]['win']) * 100:+.2f}pp")
-    lad = sorted([r for r in rows if r["mode"] == "base"], key=lambda r: r["hz"])
-    if len(lad) > 1:
-        print("\n[horizon 阶梯] 184 列纯订单簿、val 定阈值、test 评估；平衡线 0.808→55.31% / 0.80→55.56%")
-        print(f"{'h':>4}{'AUCval':>8}{'AUCtest':>9}{'单/天':>7}{'胜率':>8}"
-              f"{'EV@0.808':>10}{'EV@0.80':>9}{'月min':>8}")
-        for r in lad:
-            print(f"{r['hz']:>4}{r['auc_v']:>8.4f}{r['auc_t']:>9.4f}{r['per_day']:>7.1f}"
-                  f"{r['win'] * 100:>7.2f}%{r['ev']:>+10.3f}"
-                  f"{0.8 * r['win'] - (1 - r['win']):>+9.3f}{r['monmin'] * 100:>7.2f}%")
+        print(f"[h={hz}] 最优 AUC(test) {best['tag']} cols={best['cols']} "
+              f"AUC={best['auc_t']:.4f} → ΔAUC={best['auc_t'] - b[0]['auc_t']:+.4f}")
+
+    # 等单量对照：不同 horizon 在同一「名义 tpd」档上横向比（跨方案比较的唯一正确口径）
+    base_rows = [r for r in rows if r["mode"] == "base"]
+    if len(base_rows) > 1 or len(TPD_LIST) > 1:
+        print("\n[等单量对照] base 特征集，行=名义tpd档、列=horizon；"
+              "平衡线 0.808→55.31% / 0.80→55.56%")
+        print(f"{'名义tpd':>8}" + "".join(f"{'h=' + str(r['hz']):>22}" for r in base_rows))
+        print(f"{'':>8}" + "".join(f"{'单/天  胜率   EV@0.808':>22}" for _ in base_rows))
+        for i, tpd in enumerate(TPD_LIST):
+            line = f"{tpd:>8.1f}"
+            for r in base_rows:
+                bb = [b for b in r["bands"] if b["tpd"] == tpd]
+                if bb:
+                    b = bb[0]
+                    line += f"{b['per_day']:>10.1f}{b['win'] * 100:>8.2f}%{b['ev']:>+8.3f}"
+                else:
+                    line += f"{'-':>26}"
+            print(line)
     log("DONE")
 
 
