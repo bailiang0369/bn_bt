@@ -61,6 +61,9 @@ VAL_DAYS = int(os.environ.get("VAL_DAYS", "30"))
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44").split(",") if s.strip()]
 KLINE_FROM = int(os.environ.get("KLINE_FROM", "2020"))
 AUX_SYMBOL = os.environ.get("AUX_SYMBOL", "ETHUSDT")   # 跨品种信息源
+LABEL = os.environ.get("LABEL", "dir")                 # dir=方向  tb=对称三重障碍
+TB_K = float(os.environ.get("TB_K", "1.0"))            # 三重障碍宽度（σ 倍数）
+FSETS = [s.strip() for s in os.environ.get("FSETS", "base,xasset").split(",") if s.strip()]
 
 PAYOUT = 0.8
 BREAKEVEN = 1.0 / (1.0 + PAYOUT)      # 55.56%：低于此线 EV 必为负
@@ -274,11 +277,55 @@ def xasset_feats(df: pl.DataFrame, minutes: int, tag: str) -> list[pl.Expr]:
     return e
 
 
+BIG = 10 ** 9
+
+
+def tb_label(df: pl.DataFrame, minutes: int, h_bars: int, k: float) -> np.ndarray:
+    """对称三重障碍标签：entry=close[t]，未来 h 根内先触及 +kσ 记 1、-kσ 记 0；
+    同根双触或始终未触记 -1（剔除）。σ = 日波动(1440 根) 按 sqrt(h_bars) 缩放。
+
+    只用 t 之后的高低价，无前视：第 kk 根触碰对应 high[t+kk]/low[t+kk]。
+    """
+    n = df.height
+    hi = df["high"].to_numpy().astype(np.float64)
+    lo = df["low"].to_numpy().astype(np.float64)
+    cl = df["close"].to_numpy().astype(np.float64)
+    r = np.zeros(n)
+    r[1:] = np.log(cl[1:] / np.maximum(cl[:-1], 1e-12))
+    nb1440 = max(2, int(round(1440 / minutes)))
+    rv = (pl.Series(r).rolling_std(nb1440, min_samples=max(3, nb1440 // 2))
+          .to_numpy())
+    sig = np.nan_to_num(rv, nan=0.0) * np.sqrt(h_bars)
+    up = cl * np.exp(k * sig)
+    dn = cl * np.exp(-k * sig)
+    fu = np.full(n, BIG)
+    fd = np.full(n, BIG)
+    for kk in range(1, h_bars + 1):
+        seg = n - kk
+        if seg <= 0:
+            break
+        new_u = (hi[kk:] >= up[:seg]) & (fu[:seg] == BIG)
+        if new_u.any():
+            fu[np.flatnonzero(new_u)] = kk
+        new_d = (lo[kk:] <= dn[:seg]) & (fd[:seg] == BIG)
+        if new_d.any():
+            fd[np.flatnonzero(new_d)] = kk
+    y = np.full(n, -1, dtype=np.int8)
+    y[fu < fd] = 1
+    y[fd < fu] = 0
+    return y
+
+
 def build(df: pl.DataFrame, minutes: int, horizon: int, tag: str):
     h_bars = max(1, int(round(horizon / minutes)))
-    d = df.with_columns(
-        (pl.col("close").shift(-h_bars) > pl.col("close")).cast(pl.Int8).alias("target"))
-    d = d.filter(pl.col("target").is_not_null())
+    if LABEL == "tb":
+        y = tb_label(df, minutes, h_bars, TB_K)
+        d = df.with_columns(pl.Series("target", y))
+        d = d.filter(pl.col("target") >= 0)
+    else:
+        d = df.with_columns(
+            (pl.col("close").shift(-h_bars) > pl.col("close")).cast(pl.Int8).alias("target"))
+        d = d.filter(pl.col("target").is_not_null())
     d = d.with_columns(base_feats(d, minutes, tag) + shape_feats(d, minutes, tag)
                        + xasset_feats(d, minutes, tag))
     feats = [x for x in d.columns if x.startswith(tag + "_")]
@@ -451,7 +498,9 @@ def run_config(df1m: pl.DataFrame, aux1m: pl.DataFrame | None,
     months = [m for m in sorted(d["ym"].unique().to_list())
               if START_MONTH <= m <= END_MONTH]
     h_bars = max(1, int(round(horizon / minutes)))
-    for fset, feats in (("base", feats_base), ("xasset", feats_all)):
+    sets = {"base": feats_base, "xasset": feats_all}
+    for fset in [s for s in FSETS if s in sets]:
+        feats = sets[fset]
         keep: list[dict] = []
         recs = train_eval(d, feats, months, tag, keep)
         for r in recs:
@@ -503,7 +552,8 @@ def main() -> None:
         except SystemExit as e:
             log(f"[!] 跨品种数据不可用，退回单品种：{e}")
     log(f"配置：{CONFIGS} | 月份 {START_MONTH}~{END_MONTH} | seeds={SEEDS} "
-        f"| 平衡线={BREAKEVEN * 100:.2f}% | aux={AUX_SYMBOL if aux is not None else '-'}")
+        f"| 平衡线={BREAKEVEN * 100:.2f}% | aux={AUX_SYMBOL if aux is not None else '-'} "
+        f"| label={LABEL}{'' if LABEL != 'tb' else f'(k={TB_K})'} | fsets={FSETS}")
     for minutes, horizon in CONFIGS:
         run_config(raw, aux, minutes, horizon)
     run_consensus()

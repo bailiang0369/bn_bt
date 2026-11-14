@@ -997,8 +997,12 @@ PROJECTS = {
              "KLINE_FROM": "2020"},
     ),
 
-    # v2：以「提升胜率」为目标的过滤网格实验（现货基差特征 + 单边/持续性/趋势/波动过滤
-    # + 去重叠 + 多周期共振）。34 个月样本，替代 v1 只有 10 个月、结论不够稳的问题。
+    # v2/v3：以「提升胜率」为目标的过滤网格实验，34 个月样本。
+    # 已实测排除：现货基差(14 特征, AUC 无增量)、顺趋势/高波动过滤(系统性有害)、
+    # 信号持续性 p3(无差异)、跨品种 ETH(AUC +0.001 但胜率不稳定)。
+    # 当前进行中：LABEL=tb 对称三重障碍标签（先触及 ±kσ 者定标签），治「h 后方向」
+    # 标签噪声大的病根；FSETS=base 因 xasset 已证伪，省一半算力。
+    # 要复现 v2/v3 的方向标签结果，用 --set LABEL=dir --set FSETS=base,xasset。
     "klinethr2": dict(
         # slug 必须与 title 推导出的 clean-url slug 完全一致，否则 kaggle push 返回 409
         slug="byh850515/btcusdt-kline-threshold-wf-2",
@@ -1008,7 +1012,8 @@ PROJECTS = {
         dataset_sources=[],
         env={"SYMBOL": "BTCUSDT", "START_MONTH": "2024-01", "END_MONTH": "2026-10",
              "WIN_DAYS": "730", "VAL_DAYS": "30", "SEEDS": "42,43,44",
-             "KLINE_FROM": "2020"},
+             "KLINE_FROM": "2020", "AUX_SYMBOL": "ETHUSDT",
+             "LABEL": "tb", "TB_K": "1.0", "FSETS": "base"},
     ),
 }
 
