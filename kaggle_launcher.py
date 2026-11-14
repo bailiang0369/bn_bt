@@ -596,6 +596,16 @@ PROJECTS = {
              "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "W",
              "SEEDS": "42,43,44,45,46"},
     ),
+    # A/B：val 是否并入训练集重训（用户 2026-11-14 提出）。A=现役 64/16/20，
+    # B=train+val 重训（轮数固定为 A 的平均早停轮数），阈值同分位保证单量可比。
+    "h3retrain": dict(
+        slug="byh850515/btcusdt-h3-retrain-ab",
+        title="BTCUSDT H3 Retrain AB",
+        entry="morph.h3_retrain",
+        enable_internet=True,
+        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        env={"HORIZON": "3", "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TPD": "15"},
+    ),
     # 跨域接入两腿基线：口径照抄 twolegs，只把订单簿腿换成 ob / ob+cross 做对照
     "h3fuse": dict(
         slug="byh850515/btcusdt-h3-fuse-cross",
