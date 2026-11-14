@@ -627,6 +627,18 @@ PROJECTS = {
         env={"HORIZON": "3", "SEEDS": "42,43,44", "ROUNDS": "2000", "TPD": "15",
              "SETS": "base,d1,d1m3"},
     ),
+    # horizon 阶梯：§29.5 落地决策。现役信号 h=3（小平台有 3m），币安最短 10m、赔率 0.8
+    # （平衡线 55.56%）。同口径（184 列纯订单簿 / val 定阈值 / test 评估）一次跑 3,5,10,15，
+    # 看 h=10 胜率能否过 55.56%：>57% 币安可当主力，55~57% 只能补充，<55.56% 直接否掉。
+    "h3hz": dict(
+        slug="byh850515/btcusdt-h3-hz",
+        title="BTCUSDT H3 Horizon Ladder",
+        entry="morph.h3_lagfeat",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"HORIZONS": "3,5,10,15", "SETS": "base",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TPD": "15"},
+    ),
     # 跨域接入两腿基线：口径照抄 twolegs，只把订单簿腿换成 ob / ob+cross 做对照
     "h3fuse": dict(
         slug="byh850515/btcusdt-h3-fuse-cross",
