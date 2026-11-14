@@ -17,10 +17,17 @@ v2 硬结论（已实测，勿重复投入）：
   +1.8pp（62.23% vs 60.44%，26/33 月过线）；
 - horizon 与胜率正相关：h30 57.9 → h60 59.5 → h120 60.4（q2 base 口径）。
 
-v3 本轮唯一新增的信息源：**跨品种 ETH**（BTC 单品种已榨干）。
-ETHUSDT 1m 与 BTC 同源同 release，按 close_time 对齐后加：ETH 多尺度动量、
-ETH 领先/滞后 BTC 的收益差、BTC-ETH 滚动相关、可解释残差动量、两币波动比。
-另加 q=0.5%（更极端阈值）与 long+erhi 组合。
+v3 测跨品种 ETH：AUC 仅 h120/h240 +0.0012/+0.0014，h60 反向，胜率不稳定 → 不足以采纳。
+
+v4 对称三重障碍标签（LABEL=tb）。**踩过一个必须记住的坑**：标签过滤会删掉约 55%
+的行（同根双触/未触及），若在**过滤后的稀疏序列**上算 shift/rolling，窗口会跨过
+被删的行，而「某一行是否存活」取决于它之后的行情 —— 这等于把未来信息塞进特征，
+实测把 AUC 从 0.52 虚抬到 0.69、胜率虚抬到 95%。现已在完整等间隔网格上先算特征
+再过滤；修正后 TB 的 AUC(0.52~0.54) 与方向标签持平，**未带来提升**。
+
+env: SYMBOL / START_MONTH / END_MONTH / WIN_DAYS / VAL_DAYS / SEEDS / KLINE_FROM /
+     AUX_SYMBOL / LABEL / TB_K / FSETS / DIAG
+"""
 
 env: SYMBOL / START_MONTH / END_MONTH / WIN_DAYS / VAL_DAYS / SEEDS / KLINE_FROM
 """
