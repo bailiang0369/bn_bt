@@ -64,6 +64,8 @@ AUX_SYMBOL = os.environ.get("AUX_SYMBOL", "ETHUSDT")   # 跨品种信息源
 LABEL = os.environ.get("LABEL", "dir")                 # dir=方向  tb=对称三重障碍
 TB_K = float(os.environ.get("TB_K", "1.0"))            # 三重障碍宽度（σ 倍数）
 FSETS = [s.strip() for s in os.environ.get("FSETS", "base,xasset").split(",") if s.strip()]
+DIAG = os.environ.get("DIAG", "0") == "1"      # 打印单特征 vs 标签的 AUC（查泄漏/可预测性）
+DIAG_FEATS = ("ret5", "ret15", "ret60", "taker", "volz", "er60")
 
 PAYOUT = 0.8
 BREAKEVEN = 1.0 / (1.0 + PAYOUT)      # 55.56%：低于此线 EV 必为负
@@ -432,8 +434,20 @@ def train_eval(d, feats, months, tag, base_arrs):
             col = f"{tag}_{k}"
             ctx[k] = te[col].to_numpy().astype(np.float64)
             med[k] = float(np.nanmedian(va[col].to_numpy().astype(np.float64)))
+        diag = {}
+        if DIAG:
+            for f in DIAG_FEATS:
+                col = f"{tag}_{f}"
+                if col not in te.columns:
+                    continue
+                x = np.nan_to_num(te[col].to_numpy().astype(np.float64))
+                try:
+                    diag[f] = float(roc_auc_score(yt, x))
+                except ValueError:
+                    pass
         out.append(dict(
             ym=m, nd=nd, n=te.height, st=st, sv=sv, y=yt, ct=ct, ctx=ctx, med=med,
+            diag=diag,
             auc=float(roc_auc_score(yt, st + .5)),
             auc_v=float(roc_auc_score(yv, sv + .5)),
             base_rate=float(yt.mean()),
@@ -450,6 +464,12 @@ def report(tag: str, fset: str, recs: list[dict], months: int) -> dict:
                           weights=[r["n"] for r in recs]))
     log(f"[{tag}] 特征集={fset:<4} 月={len(recs)} AUC(test)={auc:.4f} "
         f"AUC(val)={aucv:.4f} base_rate={br * 100:.2f}%")
+    if DIAG:
+        keys = sorted({k for r in recs for k in r.get("diag", {})})
+        cells = " ".join(
+            f"{k}={np.mean([r['diag'][k] for r in recs if k in r.get('diag', {})]):.3f}"
+            for k in keys)
+        log(f"[{tag}] 单特征 AUC(test) {cells}")
     print(f"{HDR}")
     for q in Q_VAR:
         print(f"  --- 分位 q={q}% ---")
