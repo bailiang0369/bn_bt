@@ -603,8 +603,19 @@ PROJECTS = {
         title="BTCUSDT H3 Retrain AB",
         entry="morph.h3_retrain",
         enable_internet=True,
-        dataset_sources=["byh850515/btcusdt-orderbook-features"],
+        dataset_sources=[],          # 数据由 kaggle_bootstrap 从 GitHub release 拉
         env={"HORIZON": "3", "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "TPD": "15"},
+    ),
+    # 提 AUC 扫描：模型复杂度 × 标签净化（剔除 |ret3|<eps 的随机样本）。
+    # 动机：早停只有 24~49 棵，怀疑「AUC 0.54 是上限」有参数因素。
+    "h3sweep": dict(
+        slug="byh850515/btcusdt-h3-sweep",
+        title="BTCUSDT H3 Sweep",
+        entry="morph.h3_sweep",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"HORIZON": "3", "SEEDS": "42,43,44", "ROUNDS": "2000", "TPD": "15",
+             "EPS_LIST": "0,0.00005,0.0001"},
     ),
     # 跨域接入两腿基线：口径照抄 twolegs，只把订单簿腿换成 ob / ob+cross 做对照
     "h3fuse": dict(
