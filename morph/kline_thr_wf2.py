@@ -28,9 +28,6 @@ v4 对称三重障碍标签（LABEL=tb）。**踩过一个必须记住的坑**�
 env: SYMBOL / START_MONTH / END_MONTH / WIN_DAYS / VAL_DAYS / SEEDS / KLINE_FROM /
      AUX_SYMBOL / LABEL / TB_K / FSETS / DIAG
 """
-
-env: SYMBOL / START_MONTH / END_MONTH / WIN_DAYS / VAL_DAYS / SEEDS / KLINE_FROM
-"""
 from __future__ import annotations
 
 import datetime as dt
