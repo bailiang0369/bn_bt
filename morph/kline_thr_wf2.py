@@ -315,21 +315,30 @@ def tb_label(df: pl.DataFrame, minutes: int, h_bars: int, k: float) -> np.ndarra
     y = np.full(n, -1, dtype=np.int8)
     y[fu < fd] = 1
     y[fd < fu] = 0
-    return y
+    return y, np.minimum(fu, fd)
 
 
 def build(df: pl.DataFrame, minutes: int, horizon: int, tag: str):
     h_bars = max(1, int(round(horizon / minutes)))
+    # 特征必须在**完整等间隔网格**上计算，再按标签过滤；
+    # 若先过滤再算，shift/rolling 会跨过被删的行，窗口不再是固定时间长度（v2 的错）。
+    d = df.with_columns(base_feats(df, minutes, tag) + shape_feats(df, minutes, tag)
+                        + xasset_feats(df, minutes, tag))
+    d = d.with_columns(
+        (pl.col("close").shift(-h_bars) > pl.col("close")).cast(pl.Int8)
+        .alias("target_dir"))
     if LABEL == "tb":
-        y = tb_label(df, minutes, h_bars, TB_K)
-        d = df.with_columns(pl.Series("target", y))
-        d = d.filter(pl.col("target") >= 0)
+        y, touch = tb_label(df, minutes, h_bars, TB_K)
+        keep = y >= 0
+        tb = touch[keep]
+        tb = tb[tb < BIG]
+        log(f"[{tag}] TB 标签 k={TB_K}: 保留 {keep.mean() * 100:.1f}% | "
+            f"平均触及时长 {tb.mean():.1f} 根 / 中位 {np.median(tb):.0f} 根 "
+            f"(horizon={h_bars} 根)")
+        d = d.with_columns(pl.Series("target", y)).filter(pl.col("target") >= 0)
     else:
-        d = df.with_columns(
-            (pl.col("close").shift(-h_bars) > pl.col("close")).cast(pl.Int8).alias("target"))
-        d = d.filter(pl.col("target").is_not_null())
-    d = d.with_columns(base_feats(d, minutes, tag) + shape_feats(d, minutes, tag)
-                       + xasset_feats(d, minutes, tag))
+        d = (d.with_columns(pl.col("target_dir").alias("target"))
+              .filter(pl.col("target").is_not_null()))
     feats = [x for x in d.columns if x.startswith(tag + "_")]
     d = d.with_columns(
         pl.col("close_time").cast(pl.Datetime("ms")).dt.strftime("%Y-%m").alias("ym"))
@@ -436,6 +445,17 @@ def train_eval(d, feats, months, tag, base_arrs):
             med[k] = float(np.nanmedian(va[col].to_numpy().astype(np.float64)))
         diag = {}
         if DIAG:
+            # 同一批 test 行、同一组分数，换成「h 后方向」标签的 AUC：
+            # 若与 TB 标签的 AUC 接近 → TB 标签并非更难/更易，差别来自样本筛选；
+            # 若明显更低 → TB 标签本身可预测性更高（非泄漏）。
+            yd = te["target_dir"].to_numpy()
+            okm = yd >= 0
+            if okm.sum() > 100:
+                try:
+                    diag["_samedir"] = float(
+                        roc_auc_score(yd[okm].astype(np.int8), st[okm] + .5))
+                except ValueError:
+                    pass
             for f in DIAG_FEATS:
                 col = f"{tag}_{f}"
                 if col not in te.columns:
