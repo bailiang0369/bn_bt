@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """长周期 K 线 walk-forward v2：目标是**提升胜率**，不是提升单量。
 
-v1（kline_thr_wf.py）已证实：纯方向模型 + |score| 分位阈值，10 个月上最好只有
-m5h60 1% 的 61.37%（其余配置 55~57%，贴着 55.56% 的平衡线）。v2 在**模型不变**
-的前提下，把「训练一次、评估多种过滤条件」做成网格实验，一次跑完回答：
-哪些过滤条件真的能把胜率推上去。
+v1（kline_thr_wf.py）：纯方向模型 + |score| 分位阈值，10 个月(2026-01~10)上
+m5h60 1% = 61.37%，其余配置 55~57%。v2 把「训练一次、评估多种过滤条件」做成
+网格，34 个月(2024-01~2026-10)复核并逐项排除无效方向。
 
-新增 / 改进：
-1. 现货特征（v1 的 resample 把 spot_* 列全丢了）：永续-现货基差 basis 及其 z、
-   现货 taker 买占比、现货/永续 taker 背离、现货领先收益等；
-2. 过滤网格：单边（只多/只空）、信号持续性（连续 2/3 根同向）、
-   趋势一致（对齐 240m 动量）、逆势、波动区间（rv60 高/低）、趋势效率（er60 高）、
-   以及上述组合；
-3. 去重叠（cooldown = horizon）口径：重叠样本会让显著性虚高，单列一行；
-4. 多周期共振：同基础尺度下 30/60/120/240m 分数同向才算信号；
-5. 打印无条件基准上涨率 base_rate（v1 缺失，导致无法判断 EV 的绝对水平）。
+v2 硬结论（已实测，勿重复投入）：
+- 现货基差 / 现货主动买卖 / 现货领先（14 个特征）：AUC 无增量（±0.0005），
+  h60 q1 胜率 +1.7pp 但 h240 全面变差 → 噪声，剔除；
+- 顺趋势过滤（对齐 240m 动量）：**系统性有害**（h120 51.90%、h240 38.62%）；
+  反倒是逆势(rev) 稳定略优于 base → 模型 alpha 在动量反转端；
+- 信号持续性 p3（连续 3 根同向）：与 base 无差异（<0.2pp），无效；
+- 高波动过滤 rvhi：系统性有害；低波动 rvlo 胜率最高但月度方差爆炸（std 20%+）；
+- 长周期空头端基本无效（h120 short 41.49%）→ 只做多(long) 稳定优于双向；
+- 唯一一致正向的几何过滤：erhi（60 根趋势效率高于 val 中位数），h120 上
+  +1.8pp（62.23% vs 60.44%，26/33 月过线）；
+- horizon 与胜率正相关：h30 57.9 → h60 59.5 → h120 60.4（q2 base 口径）。
+
+v3 本轮唯一新增的信息源：**跨品种 ETH**（BTC 单品种已榨干）。
+ETHUSDT 1m 与 BTC 同源同 release，按 close_time 对齐后加：ETH 多尺度动量、
+ETH 领先/滞后 BTC 的收益差、BTC-ETH 滚动相关、可解释残差动量、两币波动比。
+另加 q=0.5%（更极端阈值）与 long+erhi 组合。
 
 env: SYMBOL / START_MONTH / END_MONTH / WIN_DAYS / VAL_DAYS / SEEDS / KLINE_FROM
 """
@@ -54,11 +60,12 @@ WIN_DAYS = int(os.environ.get("WIN_DAYS", "730"))
 VAL_DAYS = int(os.environ.get("VAL_DAYS", "30"))
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44").split(",") if s.strip()]
 KLINE_FROM = int(os.environ.get("KLINE_FROM", "2020"))
+AUX_SYMBOL = os.environ.get("AUX_SYMBOL", "ETHUSDT")   # 跨品种信息源
 
 PAYOUT = 0.8
 BREAKEVEN = 1.0 / (1.0 + PAYOUT)      # 55.56%：低于此线 EV 必为负
 Q_REF = (0.5, 1, 2, 3)               # base 变体的分位参考
-Q_VAR = (1, 2)                       # 变体网格评估用的分位
+Q_VAR = (0.5, 1, 2)                  # 变体网格评估用的分位（新增 q=0.5%）
 MIN_N = 10                           # 单月单量低于此值不参与月度统计（q=1% 组合过滤后单量很小）
 CONFIGS = [(5, 30), (5, 60), (5, 120), (5, 240)]   # 5m 基础；v1 的 1m 基础无用，砍掉
 CONSENSUS = [((5, 30), (5, 60)), ((5, 60), (5, 120)), ((5, 60), (5, 240))]
@@ -72,6 +79,7 @@ VARIANTS = [
     ("rvhi", ("rvh",)), ("rvlo", ("rvl",)), ("erhi", ("erh",)),
     ("trend+p3", ("tr", "p3")), ("long+p3", ("L", "p3")), ("short+p3", ("S", "p3")),
     ("trend+rvhi", ("tr", "rvh")), ("p3+rvhi", ("p3", "rvh")),
+    ("long+erhi", ("L", "erh")),
 ]
 
 SCORES: dict[str, dict] = {}    # tag -> {ym: dict(ct, st, y, thr)}
@@ -82,19 +90,23 @@ def log(msg: str) -> None:
 
 
 # ---------------------------------------------------------------- 数据
-def load_raw() -> pl.DataFrame:
+def load_raw(sym: str = None, light: bool = False) -> pl.DataFrame:
+    """light=True 只保留 close_time/close（给跨品种辅助标的用，省内存）。"""
+    sym = sym or SYMBOL
     a = ok._assets(ok.KLINE_TAG)
-    names = [f"{SYMBOL}_1m_klines_{y}.parquet" for y in range(KLINE_FROM, 2027)]
+    names = [f"{sym}_1m_klines_{y}.parquet" for y in range(KLINE_FROM, 2027)]
     have = [n for n in names if n in a]
     if not have:
-        raise SystemExit(f"{ok.KLINE_TAG} 里没有 {SYMBOL} K 线")
-    df = pl.concat([pl.read_parquet(ok.fetch(ok.KLINE_TAG, n)) for n in have],
-                   how="vertical_relaxed")
+        raise SystemExit(f"{ok.KLINE_TAG} 里没有 {sym} K 线")
+    cols = ["close_time", "close"] if light else None
+    df = pl.concat([pl.read_parquet(ok.fetch(ok.KLINE_TAG, n), columns=cols)
+                    for n in have], how="vertical_relaxed")
     df = df.unique(subset=["close_time"], keep="last").sort("close_time")
-    df = df.with_columns(
-        (pl.col("um_buy_vol") + pl.col("um_sell_vol")).alias("volume"),
-        pl.col("um_buy_vol").alias("taker_buy"))
-    log(f"K 线 {df.height:,} 行 | {df.columns}")
+    if not light:
+        df = df.with_columns(
+            (pl.col("um_buy_vol") + pl.col("um_sell_vol")).alias("volume"),
+            pl.col("um_buy_vol").alias("taker_buy"))
+    log(f"{sym} K 线 {df.height:,} 行 | {len(df.columns)} 列")
     return df
 
 
@@ -204,42 +216,61 @@ def shape_feats(df: pl.DataFrame, minutes: int, tag: str) -> list[pl.Expr]:
     return e
 
 
-def spot_feats(df: pl.DataFrame, minutes: int, tag: str) -> list[pl.Expr]:
-    """现货维度：基差 + 现货主动买卖 + 现货领先。v1 完全没有这些信息。"""
-    if "spot_close" not in df.columns:
+def resample_close(df: pl.DataFrame, minutes: int) -> pl.DataFrame:
+    """辅助标的（只有 close_time/close 两列）的轻量重采样。"""
+    if minutes == 1:
+        return df.select("close_time", "close")
+    ms = minutes * MI
+    return (df.with_columns(_b=(pl.col("close_time") // ms))
+            .group_by("_b")
+            .agg(pl.col("close_time").last(), pl.col("close").last(),
+                 pl.len().alias("cnt"))
+            .filter(pl.col("cnt") == minutes)
+            .sort("close_time").drop("cnt"))
+
+
+def xasset_feats(df: pl.DataFrame, minutes: int, tag: str) -> list[pl.Expr]:
+    """跨品种（ETH）维度。BTC 单品种已榨干（现货基差/主动买卖实测无增量），
+    唯一还没用过的独立信息是另一只主流币的同期行为。"""
+    if "eth_close" not in df.columns:
         return []
     c = pl.col("close").cast(pl.Float64)
-    sc = pl.col("spot_close").cast(pl.Float64)
-    pv = pl.col("volume").cast(pl.Float64)
-    sbv = pl.col("spot_buy_vol").cast(pl.Float64)
-    ssv = pl.col("spot_sell_vol").cast(pl.Float64)
-    sv = sbv + ssv
+    ec = pl.col("eth_close").cast(pl.Float64)
+    rb = (c / c.shift(1)).log()
+    re_ = (ec / ec.shift(1)).log()
     e: list[pl.Expr] = []
 
     def nb(m: int) -> int:
         return max(1, int(round(m / minutes)))
 
-    b = (c - sc) / sc * 1e4
-    bm = b.rolling_mean(nb(240), min_samples=max(2, nb(120)))
-    bs = b.rolling_std(nb(240), min_samples=max(2, nb(120)))
-    e.append(b.alias(f"{tag}_sp_basis"))
-    e.append(((b - bm) / (bs + 1e-9)).alias(f"{tag}_sp_basisz"))
-    e.append((b - b.shift(1)).alias(f"{tag}_sp_basisd"))
-    e.append(b.rolling_std(nb(60), min_samples=max(2, nb(30))).alias(f"{tag}_sp_basisrv"))
-    st_ = sbv / (sv + 1e-9)
-    pt_ = pl.col("taker_buy").cast(pl.Float64) / (pv + 1e-9)
-    e.append(st_.alias(f"{tag}_sp_staker"))
-    e.append((pt_ - st_).alias(f"{tag}_sp_tdiv"))
-    for m in (15, 60):
-        e.append((pt_ - st_).rolling_mean(nb(m), min_samples=max(2, nb(m) // 2))
-                 .alias(f"{tag}_sp_tdiv{m}"))
-    e.append((sv / (pv + 1e-9)).alias(f"{tag}_sp_volr"))
-    for m in (5, 15, 60):
-        e.append(((sc / sc.shift(nb(m))).log() * 1e4).alias(f"{tag}_sp_sret{m}"))
-    e.append((((sc / sc.shift(nb(15))).log() - (c / c.shift(nb(15))).log()) * 1e4)
-             .alias(f"{tag}_sp_lead15"))
-    e.append((((sc / sc.shift(nb(60))).log() - (c / c.shift(nb(60))).log()) * 1e4)
-             .alias(f"{tag}_sp_lead60"))
+    for m in (5, 15, 60, 240):
+        n = nb(m)
+        e.append(((ec / ec.shift(n)).log() * 1e4).alias(f"{tag}_xa_eret{m}"))
+        # BTC 相对 ETH 的强弱（同一尺度收益差）
+        e.append((((c / c.shift(n)).log() - (ec / ec.shift(n)).log()) * 1e4)
+                 .alias(f"{tag}_xa_rs{m}"))
+    # ETH 领先 BTC：短尺度 ETH 已走、BTC 未走的部分
+    e.append(((ec / ec.shift(nb(5))).log() - (c / c.shift(nb(5))).log())
+             .mul(1e4).alias(f"{tag}_xa_lead5"))
+    e.append(((ec / ec.shift(nb(15))).log() - (c / c.shift(nb(15))).log())
+             .mul(1e4).alias(f"{tag}_xa_lead15"))
+    # 滚动相关与协方差结构（用 240 根）
+    n = nb(240)
+    mb = rb.rolling_mean(n, min_samples=max(2, n // 2))
+    me = re_.rolling_mean(n, min_samples=max(2, n // 2))
+    cov = ((rb - mb) * (re_ - me)).rolling_mean(n, min_samples=max(2, n // 2))
+    vb = (rb - mb).pow(2).rolling_mean(n, min_samples=max(2, n // 2))
+    ve = (re_ - me).pow(2).rolling_mean(n, min_samples=max(2, n // 2))
+    e.append((cov / (vb * ve).sqrt() + 1e-9).alias(f"{tag}_xa_corr240"))
+    # 用 ETH 解释 BTC 后的残差动量：BTC 自身未被大盘解释的部分
+    beta = cov / (ve + 1e-12)
+    e.append((beta * 1e4).alias(f"{tag}_xa_beta240"))
+    e.append(((rb - beta * re_) * 1e4).alias(f"{tag}_xa_resid"))
+    e.append(((rb - beta * re_).rolling_sum(nb(60)) * 1e4).alias(f"{tag}_xa_residm60"))
+    # 两币波动比：谁在主导行情
+    e.append(((rb.rolling_std(nb(60), min_samples=max(3, nb(30))) + 1e-9)
+              / (re_.rolling_std(nb(60), min_samples=max(3, nb(30))) + 1e-9))
+             .alias(f"{tag}_xa_rvr"))
     return e
 
 
@@ -249,7 +280,7 @@ def build(df: pl.DataFrame, minutes: int, horizon: int, tag: str):
         (pl.col("close").shift(-h_bars) > pl.col("close")).cast(pl.Int8).alias("target"))
     d = d.filter(pl.col("target").is_not_null())
     d = d.with_columns(base_feats(d, minutes, tag) + shape_feats(d, minutes, tag)
-                       + spot_feats(d, minutes, tag))
+                       + xasset_feats(d, minutes, tag))
     feats = [x for x in d.columns if x.startswith(tag + "_")]
     d = d.with_columns(
         pl.col("close_time").cast(pl.Datetime("ms")).dt.strftime("%Y-%m").alias("ym"))
@@ -405,17 +436,22 @@ def report(tag: str, fset: str, recs: list[dict], months: int) -> dict:
     print()
 
 
-def run_config(df1m: pl.DataFrame, minutes: int, horizon: int) -> None:
+def run_config(df1m: pl.DataFrame, aux1m: pl.DataFrame | None,
+               minutes: int, horizon: int) -> None:
     tag = f"m{minutes}h{horizon}"
     base = df1m if minutes == 1 else resample(df1m, minutes)
+    if aux1m is not None:
+        ax = resample_close(aux1m, minutes).select(
+            pl.col("close_time"), pl.col("close").alias("eth_close"))
+        base = base.join(ax, on="close_time", how="left")
     d, feats_all = build(base, minutes, horizon, tag)
-    feats_base = [c for c in feats_all if "_sp_" not in c]
-    feats_spot = [c for c in feats_all if "_sp_" in c]
-    log(f"[{tag}] 可用 {d.height:,} 行 | 特征 base={len(feats_base)} spot={len(feats_spot)}")
+    feats_base = [c for c in feats_all if "_xa_" not in c]
+    feats_xa = [c for c in feats_all if "_xa_" in c]
+    log(f"[{tag}] 可用 {d.height:,} 行 | 特征 base={len(feats_base)} xasset={len(feats_xa)}")
     months = [m for m in sorted(d["ym"].unique().to_list())
               if START_MONTH <= m <= END_MONTH]
     h_bars = max(1, int(round(horizon / minutes)))
-    for fset, feats in (("base", feats_base), ("spot", feats_all)):
+    for fset, feats in (("base", feats_base), ("xasset", feats_all)):
         keep: list[dict] = []
         recs = train_eval(d, feats, months, tag, keep)
         for r in recs:
@@ -460,10 +496,16 @@ def run_consensus() -> None:
 
 def main() -> None:
     raw = load_raw()
+    aux = None
+    if AUX_SYMBOL and AUX_SYMBOL != SYMBOL:
+        try:
+            aux = load_raw(AUX_SYMBOL, light=True)
+        except SystemExit as e:
+            log(f"[!] 跨品种数据不可用，退回单品种：{e}")
     log(f"配置：{CONFIGS} | 月份 {START_MONTH}~{END_MONTH} | seeds={SEEDS} "
-        f"| 平衡线={BREAKEVEN * 100:.2f}%")
+        f"| 平衡线={BREAKEVEN * 100:.2f}% | aux={AUX_SYMBOL if aux is not None else '-'}")
     for minutes, horizon in CONFIGS:
-        run_config(raw, minutes, horizon)
+        run_config(raw, aux, minutes, horizon)
     run_consensus()
     log("DONE")
 
