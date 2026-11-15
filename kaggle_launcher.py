@@ -691,6 +691,19 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
     ),
+    # h=10 训练口径诊断（2026-11-15）：train AUC 0.62 / valid 0.53 是否过拟合 + 有无泄漏。
+    # placebo（打乱训练标签）验泄漏；stride=HORIZON 抽样去掉 90% 冗余样本（标签重叠），顺带快 10 倍。
+    "h10diag": dict(
+        slug="byh850515/btcusdt-h10-diag",
+        title="BTCUSDT H10 Diag",
+        entry="morph.h10_diag",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "WINDOWS": "2026-08,2026-09,2026-10", "STRIDES": "1,10", "TPD": "8",
+             "KLINE_FROM": "2020"},
+    ),
     # ETH h=10（2026-11-15）：BTC h=10 已定案 63.59%，但 ETH 只测过 h=30（月度 std 10.6pp、
     # 连续 3 个月破 45%，判负）。h=10 从未测过，用同一套因果阈值管线跑一次。
     "h10eth": dict(
