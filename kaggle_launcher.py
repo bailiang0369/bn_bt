@@ -748,6 +748,28 @@ PROJECTS = {
              "PLACEBO": "1", "PLACEBO_SEEDS": "2",
              "PAYOUTS": "0.808,0.75", "KLINE_FROM": "2020"},
     ),
+    # 5m 真 K 线 + 60 分钟（= 12 步，与 1m/h=10 的 10 步同量级的标签重叠）（2026-11-15）
+    # 用户指出：E2 的「bar 尺度无关」是拿 1m 特征取每桶最后一个快照，等于没换尺度。
+    # 这里用 group_by_dynamic 真聚合成 5m OHLCV，并在 5m 上重算全部特征（b_* 前缀）。
+    # 用户明确「不需要保持每天 15 单」→ 主操作点预登记 tpd=4（60 分钟持仓下并发 1/6），
+    # 同时报 1/2/8/15 全曲线，不事后挑最优。
+    # 注意：5m×2400 天 = 69 万行，独立样本 69万/12 ≈ 5.7 万，是 h=30（12 万）的一半，
+    # 样本更紧张，靠信噪比补偿。
+    "bar5sig": dict(
+        slug="byh850515/btcusdt-5m-60min-signal",
+        title="BTCUSDT 5m Bar 60min Signal",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "BAR": "5", "HORIZON": "60",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000",
+             "WIN_DAYS": "2400", "STRIDE": "12",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "1,2,4,8,15", "PRIMARY_TPD": "4",
+             "PLACEBO": "1", "PLACEBO_SEEDS": "2",
+             "PAYOUTS": "0.853,0.85", "KLINE_FROM": "2020"},
+    ),
     # h=30 因果口径摸底（2026-11-15）：仓库里 h=30 只有前视 top-K 的 55.20%（月 min 43.7%、
     # EV@0.853 仅 +2.3%），与 h=10 的因果 63.32% 不同口径、不可比。先把 h10_signal 管线
     # 参数化到 h=30 拿同口径数字。判据预登记：因果口径 ≥58% 才进特征 A/B；56~58% 只当分散

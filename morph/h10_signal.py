@@ -63,6 +63,8 @@ except AttributeError:
     pass
 
 HORIZON = int(os.environ.get("HORIZON", "10"))
+# bar 尺度（分钟）：1 = 原始 1m；>1 = 真 K 线重采样，并在新 bar 上重算全部特征
+BAR = int(os.environ.get("BAR", "1"))
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44,45,46").split(",") if s.strip()]
 ROUNDS = int(os.environ.get("ROUNDS", "2000"))
 WIN_DAYS = int(os.environ.get("WIN_DAYS", "1460"))
@@ -75,7 +77,7 @@ PRIMARY_TPD = float(os.environ.get("PRIMARY_TPD", "8"))
 PAYOUTS = [float(x) for x in os.environ.get("PAYOUTS", "0.80,0.828").split(",") if x.strip()]
 # 阈值分位分母：test 是 1m 行，所以 1440 = 每天 1440 个候选位置。
 # 保持 1440 才与 h=10 的 63.32% 同口径（实盘合并同一段连续触发是另一回事，见 §36 之后的口径备忘）。
-BARS_PER_DAY = int(os.environ.get("BARS_PER_DAY", "1440"))
+BARS_PER_DAY = int(os.environ.get("BARS_PER_DAY", str(1440 // BAR)))
 # 标签重叠 HORIZON 根：stride=HORIZON 抽样已证等价（§35），只用于摸底/月度重训；
 # 对外正式数字保持 STRIDE=1（全量）。
 STRIDE = int(os.environ.get("STRIDE", "1"))
@@ -157,6 +159,94 @@ def add_struct(df: pl.DataFrame, feats: list[str]) -> tuple[pl.DataFrame, list[s
     return out, feats + new
 
 
+def to_bar(df: pl.DataFrame, bar: int) -> pl.DataFrame:
+    """1m → bar 分钟**真 K 线**（OHLCV 按桶聚合，不是「取每桶最后一个 1m 特征快照」）。
+
+    区别很关键：`h3_bartf.py`（E2）是先算 1m 特征再 `last()` 取快照，等于只换了标签的
+    采样粒度、特征还停在 1 分钟信噪比上，所以它只能证明「采样无关」。这里是真的重采样。
+    """
+    if bar == 1:
+        return df
+    agg = [pl.col("open").first(), pl.col("high").max(), pl.col("low").min(),
+           pl.col("close").last(), pl.col("um_buy_vol").sum(),
+           pl.col("um_sell_vol").sum(), pl.col("um_count").sum()]
+    if "spot_close" in df.columns:
+        agg += [pl.col("spot_close").last(), pl.col("spot_buy_vol").sum(),
+                pl.col("spot_sell_vol").sum()]
+    out = (df.with_columns(pl.from_epoch("close_time", time_unit="ms").alias("ts"))
+             .sort("ts")
+             .group_by_dynamic("ts", every=f"{bar}m")
+             .agg(agg + [pl.col("close_time").last()])
+             .drop("ts")
+             .sort("close_time"))
+    log(f"  1m {df.height:,} 行 → {bar}m {out.height:,} 行（真 K 线聚合）")
+    return out
+
+
+def build_bar(df: pl.DataFrame, bar: int) -> tuple[pl.DataFrame, list[str]]:
+    """在 bar 尺度上重算全部特征（**分钟语义**：窗口仍按分钟给，内部换算成根数）。
+
+    窗口以「一个 horizon」为中心铺开：`HORIZON=60` 时 `b_ret60` 正好是 1 个 horizon，
+    `b_ret1440` 是 24 个。比直接复用 `kl.build()`（窗口按根解释，5m 上会放大 5 倍）可控得多。
+    """
+    c = pl.col("close").cast(pl.Float64)
+    r1 = (c / c.shift(1)).log() * 1e4
+
+    def k_of(m: int) -> int:
+        return max(1, m // bar)
+
+    e: list[pl.Expr] = []
+    for m in (5, 10, 15, 30, 60, 120, 240, 480, 1440):
+        e.append(((c / c.shift(k_of(m))).log() * 1e4).alias(f"b_ret{m}"))
+    for m in (30, 60, 240, 1440):
+        k = k_of(m)
+        ma = c.rolling_mean(k, min_samples=max(2, k // 2))
+        e += [((c / ma - 1) * 1e4).alias(f"b_madev{m}"),
+              ((ma / ma.shift(k) - 1) * 1e4).alias(f"b_maslope{m}"),
+              r1.rolling_std(k, min_samples=max(3, k // 2)).alias(f"b_rv{m}")]
+    for m in (240, 1440):
+        k = k_of(m)
+        lo = c.rolling_min(k, min_samples=max(2, k // 2))
+        hi = c.rolling_max(k, min_samples=max(2, k // 2))
+        e.append(((c - lo) / (hi - lo + 1e-9)).alias(f"b_pos{m}"))
+    abs_r1 = r1.abs()
+    for m in (60, 240):
+        k = k_of(m)
+        e.append((r1.rolling_sum(k).abs()
+                  / (abs_r1.rolling_sum(k) + 1e-9)).alias(f"b_er{m}"))
+    vol = pl.col("um_buy_vol") + pl.col("um_sell_vol")
+    km = k_of(1440)
+    vm = vol.rolling_mean(km, min_samples=max(2, km // 2))
+    vs = vol.rolling_std(km, min_samples=max(2, km // 2))
+    e += [((vol - vm) / (vs + 1e-9)).alias("b_volz"),
+          (vol / (vm + 1e-9)).alias("b_volratio")]
+    tk = pl.col("um_buy_vol") / (vol + 1e-9)
+    for m in (15, 60, 240):
+        k = k_of(m)
+        e.append(tk.rolling_mean(k, min_samples=max(2, k // 2)).alias(f"b_taker{m}"))
+    if "spot_close" in df.columns:
+        basis = (c / pl.col("spot_close").cast(pl.Float64) - 1) * 1e4
+        kb = k_of(60)
+        e += [basis.alias("b_basis"),
+              (basis - basis.shift(kb)).alias("b_basis_chg"),
+              basis.rolling_mean(kb, min_samples=max(2, kb // 2)).alias("b_basis_ma")]
+    ct = pl.col("close_time")
+    hour = ((ct // 3_600_000) % 24).cast(pl.Float64)
+    dow = ((ct // 86_400_000) % 7).cast(pl.Float64)
+    e += [(hour * (2 * np.pi / 24)).sin().alias("b_hour_sin"),
+          (hour * (2 * np.pi / 24)).cos().alias("b_hour_cos"),
+          (dow * (2 * np.pi / 7)).sin().alias("b_dow_sin"),
+          (dow * (2 * np.pi / 7)).cos().alias("b_dow_cos")]
+    out = df.with_columns(e)
+    e2: list[pl.Expr] = []
+    for m in (60, 240, 1440):
+        e2.append((pl.col(f"b_ret{m}") / (pl.col(f"b_rv{m}") + 1e-9)).alias(f"b_zret{m}"))
+    for a_, b_ in ((30, 60), (60, 240), (240, 1440)):
+        e2.append((pl.col(f"b_rv{a_}") / (pl.col(f"b_rv{b_}") + 1e-9)).alias(f"b_rvr{a_}_{b_}"))
+    out = out.with_columns(e2)
+    return out, [x for x in out.columns if x.startswith("b_")]
+
+
 def roll_worst(w: np.ndarray, n: int = 100) -> tuple[float, float]:
     """滚动 n 单最差胜率 / 破 50% 窗口占比（单序评估，最贴近实盘体感）。"""
     if len(w) < n:
@@ -168,7 +258,13 @@ def roll_worst(w: np.ndarray, n: int = 100) -> tuple[float, float]:
 
 def main() -> None:
     raw = kl.load_raw()
-    df, feats = kl.build(raw)
+    if BAR > 1:
+        raw = to_bar(raw, BAR)
+        df, feats = build_bar(raw, BAR)
+        log(f"bar={BAR}m 原生特征 {len(feats)} 列 | HORIZON={HORIZON} 分钟 "
+            f"= {HORIZON / BAR:g} 步 | 每天 {BARS_PER_DAY} 个候选位置")
+    else:
+        df, feats = kl.build(raw)
     df, feats = add_flow(df, feats)
     if WITH_STRUCT:
         df, feats = add_struct(df, feats)
