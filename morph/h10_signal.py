@@ -232,10 +232,11 @@ def main() -> None:
             continue
         yv = np.concatenate(p["y"])
         sv = np.concatenate(p["s"])
-        dv = np.concatenate(p["d"])
         w = ((sv > 0).astype(int) == yv).astype(np.int8)
         win = float(w.mean())
-        nd = len(np.unique(dv))
+        # 分母必须是**全部测试天数**，不是"有单的天数"：
+        # 低频档（h=30 tpd=1，266 单只落在 43 天）用后者会把 1.8 单/天算成 6.2。
+        nd = sum(r["nd"] for r in rows)
         mon = np.array(p["mon"])
         se = float(np.sqrt(win * (1 - win) / max(len(w) / HORIZON, 2)))
         rmin, rbad = roll_worst(w)
