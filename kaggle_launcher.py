@@ -855,6 +855,42 @@ PROJECTS = {
              "TPD_LIST": "3,4,5,6", "PRIMARY_TPD": "4",
              "PLACEBO": "0", "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
     ),
+    # h=5 因果口径摸底（2026-11-15，用户要继续下探到 h=5）。仓库里 h=5 只有两条旧记录：
+    #   §h3宽表 1472「h=5 59.18% vs 赔率 0.818」—— 盘口宽表、前视 top-K 口径，不可执行；
+    #   §40「5m 真 K 线 + 60 分钟」—— 那是 BAR=5 改 bar 尺度，不是 h=5。
+    # 所以 h=5 的 K 线腿 + 因果固定阈值**从未跑过**。赔率 0.818 → 平衡线 55.00%。
+    # 预登记判据：打平 h=10 的 EV +0.158 需 p = 1.158/1.818 = **63.70%**（赔率更低，门槛反而更高）；
+    #   仅保正 EV 需 p > 55.00%；<58% 直接放弃，58~60% 只当分散腿，≥60% 才谈主力。
+    # 训练窗按 h=10 的验证结果取 1460（h=10 上 730 是负的、2400 在 h=30/h=15 才好）；
+    # 同时推一个 2400 的对照（h5sigB），因为「长窗更好」在 h=15/h=30 上是真实翻转的变量。
+    # STRIDE=5（=horizon，§35 已证等价、只抽 train/es），placebo 一档做换 horizon 准入（§35.3）。
+    "h5sig": dict(
+        slug="byh850515/btcusdt-h5-causal-signal",
+        title="BTCUSDT H5 Causal Signal",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "5", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "STRIDE": "5",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PLACEBO": "1", "PLACEBO_SEEDS": "2",
+             "PAYOUTS": "0.818,0.838", "KLINE_FROM": "2020"},
+    ),
+    "h5sigB": dict(
+        slug="byh850515/btcusdt-h5-causal-b",
+        title="BTCUSDT H5 Causal B",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "5", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "2400", "STRIDE": "5",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PLACEBO": "0", "PAYOUTS": "0.818,0.838", "KLINE_FROM": "2020"},
+    ),
     # bar 尺度隔离（2026-11-15）：外部 notebook h=10 报 58.3%，用的是 5m bar；我们全部
     # 历史实验都是 1m bar（h=10 = 预测 10 步、标签重叠 10 根）。同一份 K 线数据只换
     # bar 尺度（1/5/10m），阈值纪律不变，看 4.6pp 的差距有多少来自这一条。
