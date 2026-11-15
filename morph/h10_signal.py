@@ -147,12 +147,16 @@ def main() -> None:
         if tr_all.height < 100_000 or te.height < 1000:
             log(f"[{m}] 样本不足（{tr_all.height:,}/{te.height:,}），跳过")
             continue
-        if STRIDE > 1:
-            tr_all = tr_all.gather_every(STRIDE)
         h_all = tr_all.height
         c1 = int(h_all * (1 - ES_FRAC - THR_FRAC))
         c2 = int(h_all * (1 - THR_FRAC))
         tr, es, th = tr_all[:c1], tr_all[c1:c2], tr_all[c2:]
+        if STRIDE > 1:
+            # 只对 train/es 抽样（标签重叠的冗余样本）；**thr 段必须全量**：
+            # 阈值是「每 1m 行 1-tpd/1440 分位」，thr 一旦抽样，分位对应的粒度就变了，
+            # 套到 1m 全量的 test 上命中率会被放大约 STRIDE 倍（h=30 实测名义 tpd=1
+            # 变成 5.1 单/天，tpd=4 变成 7.1）。2026-11-15 修。
+            tr, es = tr.gather_every(STRIDE), es.gather_every(STRIDE)
         Xtr, ytr = matrix(tr, feats), tr["target"].to_numpy().astype(int)
         Xes, yes = matrix(es, feats), es["target"].to_numpy().astype(int)
         Xth = matrix(th, feats)
@@ -191,7 +195,7 @@ def main() -> None:
         del Xtr, Xes, Xth, Xte
         s = pte - .5
         auc = float(roc_auc_score(y, pte))
-        line = (f"[{m}] train={c1:,} es={es.height:,} thr={th.height:,} test={te.height:,}"
+        line = (f"[{m}] train={tr.height:,} es={es.height:,} thr={th.height:,} test={te.height:,}"
                 f"({nd}天) iter={int(np.mean(its))} AUC={auc:.4f}")
         if PLACEBO:
             line += f" | placebo AUC={pl_auc:.4f} 胜率={pl_win * 100:.2f}%"
