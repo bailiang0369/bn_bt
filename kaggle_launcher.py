@@ -891,6 +891,31 @@ PROJECTS = {
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
              "PLACEBO": "0", "PAYOUTS": "0.818,0.838", "KLINE_FROM": "2020"},
     ),
+    # 形态端到端（2026-11-15，用户判定）：形态应由模型自己学，不该先给「窗口几根/怎么归一化」
+    # 的定义；同时手工价格衍生特征可以砍掉。独立文件 `morph/shape_net.py`，**不动现役代码**。
+    #   - 输入只有 7 个无量纲通道（ret1/实体/上影/下影/振幅/对数成交量/主动买占比），
+    #     没有动量、均线、布林、RSI、区间位置 —— 这些原本就是价格序列的重新组合，交给卷积自己学；
+    #   - 时间伸缩由「多尺度卷积核 4/8/16/32/64 + 时间轴 max/avg 双池化」表达（不走 DTW，太慢）；
+    #   - 纪律与 h10_signal 完全一致：逐月 WF、阈值只在 thr 段定、段末 purge HORIZON、可开 placebo。
+    # GPU：用户授权（Kaggle 每周 30h 未用），本项目按策略写 gpu=True。
+    # 首跑刻意压小（WIN=240/6 epoch/2 seed/stride=10/MAX_TRAIN=40 万）以便 15 分钟内出结论。
+    # 判据先写死：主操作点 tpd=8 胜率 ≥63.32%（现役 LGBM）才算"纯形态能替代手工特征"；
+    #   <58%（约 AUC<0.533）判死，不扩 seed/不扩窗。
+    "shapenet": dict(
+        slug="byh850515/btcusdt-shape-net",
+        title="BTCUSDT Shape Net (end-to-end)",
+        entry="morph.shape_net",
+        enable_internet=True,
+        gpu=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN": "240", "EPOCHS": "6",
+             "BATCH": "1024", "MAX_TRAIN": "400000", "LR": "0.003",
+             "SEEDS": "42,43", "WIN_DAYS": "1460", "STRIDE": "10",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PAYOUTS": "0.80,0.828", "KLINE_FROM": "2020"},
+    ),
     # bar 尺度隔离（2026-11-15）：外部 notebook h=10 报 58.3%，用的是 5m bar；我们全部
     # 历史实验都是 1m bar（h=10 = 预测 10 步、标签重叠 10 根）。同一份 K 线数据只换
     # bar 尺度（1/5/10m），阈值纪律不变，看 4.6pp 的差距有多少来自这一条。
