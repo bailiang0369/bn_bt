@@ -118,7 +118,8 @@ def main() -> None:
 
     # 每配置每 tpd 档：月度胜率 + 按天 (n,w) 累计
     acc: dict[str, dict[float, dict]] = {
-        n: {t: dict(mon=[], n=np.zeros(0), w=np.zeros(0)) for t in TPD_LIST} for n, _ in cfgs}
+        n: {t: dict(mon=[], nd=0, n=np.zeros(0), w=np.zeros(0)) for t in TPD_LIST}
+        for n, _ in cfgs}
     rows, mos = [], []
     rng = np.random.default_rng(20261115)
     for m in months:
@@ -156,7 +157,10 @@ def main() -> None:
             s = pte - .5
             auc = float(roc_auc_score(y, pte))
             line = f"  {name:6}iter={int(np.mean(its)):>4} AUC={auc:.4f}"
+            for t in TPD_LIST:
+                acc[name][t]["nd"] += nd
             for tpd in TPD_LIST:
+                a = acc[name][tpd]
                 thr = float(np.quantile(np.abs(pth - .5), 1 - tpd / BARS_PER_DAY))
                 hit = np.abs(s) >= thr
                 nb = int(hit.sum())
@@ -165,7 +169,6 @@ def main() -> None:
                     continue
                 w = ((s[hit] > 0).astype(int) == y[hit]).astype(np.int8)
                 win = float(w.mean())
-                a = acc[name][tpd]
                 a["mon"].append(win)
                 n_d, w_d = day_agg(days[hit], w, nd)
                 a["n"] = np.concatenate([a["n"], n_d])
@@ -203,8 +206,7 @@ def main() -> None:
             dw = day_win[np.isfinite(day_win)]
             k = 10
             rmin = float(np.convolve(dw, np.ones(k) / k, "valid").min()) if len(dw) >= k else float("nan")
-            nd_tot = int((a["n"] > 0).sum())
-            print(f"{name:6}{tpd:>8.1f}{n_tot / nd_tot:>10.1f}{int(n_tot):>7d}"
+            print(f"{name:6}{tpd:>8.1f}{n_tot / max(a['nd'], 1):>10.1f}{int(n_tot):>7d}"
                   f"{win * 100:>8.2f}%{se * 100:>6.2f}%{ev}"
                   f"{mon.min() * 100:>7.2f}%{mon.std() * 100:>6.2f}pp"
                   f"{int((mon < .5).sum()):>5}/{len(mon)}{rmin * 100:>10.1f}%")
@@ -214,12 +216,16 @@ def main() -> None:
         print(f"\n[asym − base] 主操作点 tpd={PRIMARY_TPD:g}")
         ma, mb = np.array(a[PRIMARY_TPD]["mon"]), np.array(b[PRIMARY_TPD]["mon"])
         d = ma - mb
-        tstat = float(d.mean() / (d.std(ddof=1) / np.sqrt(len(d)))) if len(d) > 2 else float("nan")
         print("  月度配对差(pp)：" + "  ".join(
             f"{m[2:]}:{(x - y) * 100:+.1f}"
             for m, x, y in zip(mos, ma, mb)))
-        print(f"  月度均值 {d.mean() * 100:+.2f}pp  月std {d.std(ddof=1) * 100:.2f}pp  "
-              f"t={tstat:+.2f}（n={len(d)} 月）")
+        if len(d) > 2:
+            sd = float(d.std(ddof=1))
+            tstat = float(d.mean() / (sd / np.sqrt(len(d)))) if sd > 0 else 0.0
+            print(f"  月度均值 {d.mean() * 100:+.2f}pp  月std {sd * 100:.2f}pp  "
+                  f"t={tstat:+.2f}（n={len(d)} 月）")
+        else:
+            print(f"  月度均值 {d.mean() * 100:+.2f}pp（月数 {len(d)}，不报 t）")
         for tpd in TPD_LIST:
             na, wa = a[tpd]["n"], a[tpd]["w"]
             nb, wb = b[tpd]["n"], b[tpd]["w"]
