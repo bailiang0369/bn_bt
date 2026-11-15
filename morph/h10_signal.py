@@ -217,9 +217,11 @@ def main() -> None:
     if not rows:
         raise SystemExit("无窗口完成")
 
-    print(f"\n{'名义tpd':>8}{'实际单/天':>10}{'n':>7}{'胜率':>9}{'SE*':>7}"
-          f"{'EV@0.80':>9}{'EV@0.828':>10}{'月min':>8}{'月std':>7}"
-          f"{'破50%月':>8}{'滚动100min':>11}{'破50%窗':>9}")
+    # 赔率档随 PAYOUTS 变化（h=30 是 0.853/0.85，不是 h=10 的 0.80/0.828）
+    ev_hdr = "".join(f"{'EV@' + format(p, 'g'):>9}" if i == 0
+                     else f"{'EV@' + format(p, 'g'):>10}" for i, p in enumerate(PAYOUTS))
+    print(f"\n{'名义tpd':>8}{'实际单/天':>10}{'n':>7}{'胜率':>9}{'SE*':>7}{ev_hdr}"
+          f"{'月min':>8}{'月std':>7}{'破50%月':>8}{'滚动100min':>11}{'破50%窗':>9}")
     for tpd in TPD_LIST:
         p = per_tpd[tpd]
         if not p["y"]:
