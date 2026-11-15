@@ -652,6 +652,20 @@ PROJECTS = {
              "SEEDS": "42,43,44,45,46", "ROUNDS": "2000",
              "TPD_LIST": "120,60,30,15,10,5,2"},
     ),
+    # h=10 因果阈值实盘口径（2026-11-15）：kline_long 的 @日均15单 是全期 top-K（前视），
+    # 这里把 h3_signal 的纪律搬到 h=10——阈值只在窗口尾部 thr 段定，逐月 walk-forward。
+    # 目标：无前视胜率 ≥60%（主操作点预登记 tpd=8，不事后挑最优点）。
+    "h10sig": dict(
+        slug="byh850515/btcusdt-h10-causal-signal",
+        title="BTCUSDT H10 Causal Signal",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
+    ),
     # bar 尺度隔离（2026-11-15）：外部 notebook h=10 报 58.3%，用的是 5m bar；我们全部
     # 历史实验都是 1m bar（h=10 = 预测 10 步、标签重叠 10 根）。同一份 K 线数据只换
     # bar 尺度（1/5/10m），阈值纪律不变，看 4.6pp 的差距有多少来自这一条。
