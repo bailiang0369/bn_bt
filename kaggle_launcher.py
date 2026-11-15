@@ -756,7 +756,7 @@ PROJECTS = {
     # 注意：5m×2400 天 = 69 万行，独立样本 69万/12 ≈ 5.7 万，是 h=30（12 万）的一半，
     # 样本更紧张，靠信噪比补偿。
     "bar5sig": dict(
-        slug="byh850515/btcusdt-5m-60min-signal",
+        slug="byh850515/btcusdt-5m-bar-60min-signal",
         title="BTCUSDT 5m Bar 60min Signal",
         entry="morph.h10_signal",
         enable_internet=True,
