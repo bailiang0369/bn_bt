@@ -82,6 +82,8 @@ STRIDE = int(os.environ.get("STRIDE", "1"))
 # 泄漏检查：训练+早停标签一起打乱，test AUC 必须回落到 0.50（§35.3 定的换 horizon 准入检查）
 PLACEBO = os.environ.get("PLACEBO", "0") == "1"
 PLACEBO_SEEDS = int(os.environ.get("PLACEBO_SEEDS", "2"))
+# 结构位特征（前高前低/整数关口/日内开盘/影线/多周期共振），默认关闭保持基线不变
+WITH_STRUCT = os.environ.get("STRUCT", "0") == "1"
 T = time.time()
 
 
@@ -111,6 +113,46 @@ def add_flow(df: pl.DataFrame, feats: list[str]) -> tuple[pl.DataFrame, list[str
     return out, feats + new
 
 
+def add_struct(df: pl.DataFrame, feats: list[str]) -> tuple[pl.DataFrame, list[str]]:
+    """结构位特征（直播类 30 分钟策略的核心信息，本仓库 49 列里完全没有）。
+
+    现有 `lg_pos{n}` 是「区间内相对位置」，没有「距某个具体价位多少 bp」的概念；
+    而 30 分钟级别的价格行为高度依赖前高前低 / 整数关口 / 日内开盘价。
+    全部只用 past：rolling 之后 shift(1)，日开盘价是当日已知的第一根。
+    """
+    c = pl.col("close").cast(pl.Float64)
+    e: list[pl.Expr] = []
+    for n, tag in ((240, "4h"), (1440, "1d"), (10080, "7d")):
+        hi = c.rolling_max(n, min_samples=max(2, n // 2)).shift(1)
+        lo = c.rolling_min(n, min_samples=max(2, n // 2)).shift(1)
+        e += [((hi - c) / c * 1e4).alias(f"st_dnhi_{tag}"),
+              ((c - lo) / c * 1e4).alias(f"st_uplo_{tag}")]
+    if {"open", "high", "low"} <= set(df.columns):
+        o = pl.col("open").cast(pl.Float64)
+        h = pl.col("high").cast(pl.Float64)
+        lo_ = pl.col("low").cast(pl.Float64)
+        body_hi = pl.max_horizontal(o, c)
+        body_lo = pl.min_horizontal(o, c)
+        e += [((h - body_hi) / c * 1e4).alias("st_upshadow"),
+              ((body_lo - lo_) / c * 1e4).alias("st_dnshadow")]
+    # 整数关口距离（BTC 按 1000、ETH 按 100）：距最近关口的带符号 bp
+    step = 1000.0 if SYMBOL.upper().startswith("BTC") else 100.0
+    e.append(((((c / step) % 1.0) - 0.5) * step / c * 1e4).alias("st_round"))
+    # 日内（UTC 0 点）开盘价距离
+    day_open = c.first().over((pl.col("close_time") // 86_400_000).alias("_d"))
+    e.append(((c / day_open - 1) * 1e4).alias("st_dayopen"))
+    # 多周期共振：5/15/60/240/1440 分钟动量同向的个数（-5..5）
+    if "lg_ret1440" in df.columns:
+        res = None
+        for k in (5, 15, 60, 240, 1440):
+            s = pl.col(f"lg_ret{k}").sign()
+            res = s if res is None else res + s
+        e.append(res.alias("st_reson5"))
+    out = df.with_columns(e)
+    new = [x for x in out.columns if x.startswith("st_")]
+    return out, feats + new
+
+
 def roll_worst(w: np.ndarray, n: int = 100) -> tuple[float, float]:
     """滚动 n 单最差胜率 / 破 50% 窗口占比（单序评估，最贴近实盘体感）。"""
     if len(w) < n:
@@ -124,6 +166,8 @@ def main() -> None:
     raw = kl.load_raw()
     df, feats = kl.build(raw)
     df, feats = add_flow(df, feats)
+    if WITH_STRUCT:
+        df, feats = add_struct(df, feats)
     df = add_target(df, HORIZON).filter(
         pl.col("target").is_not_null() & pl.col("close").is_not_null()).sort("close_time")
     df = df.with_columns(
@@ -136,7 +180,7 @@ def main() -> None:
     log(f"因果阈值：分位只在「目标月之前的 thr 段」算，test 月只用固定阈值 → 无前视")
 
     per_tpd: dict[float, dict[str, list]] = {
-        t: dict(s=[], y=[], d=[], mon=[]) for t in TPD_LIST}
+        t: dict(s=[], y=[], d=[], h=[], mon=[]) for t in TPD_LIST}
     rows = []
     for m in months:
         m_start = int(dt.datetime.strptime(m + "-01", "%Y-%m-%d")
@@ -170,7 +214,9 @@ def main() -> None:
             pth += mdl.predict(Xth, num_iteration=mdl.best_iteration) / len(SEEDS)
             pte += mdl.predict(Xte, num_iteration=mdl.best_iteration) / len(SEEDS)
         y = te["target"].to_numpy().astype(np.int8)
-        days = ge.day_id(te["close_time"].to_numpy())
+        ct_ms = te["close_time"].to_numpy()
+        days = ge.day_id(ct_ms)
+        hours = ((ct_ms // 3_600_000) % 24).astype(np.int8)
         nd = len(np.unique(days))
         pl_auc, pl_win = float("nan"), float("nan")
         if PLACEBO:
@@ -211,6 +257,7 @@ def main() -> None:
             per_tpd[tpd]["s"].append(s[hit])
             per_tpd[tpd]["y"].append(y[hit])
             per_tpd[tpd]["d"].append(days[hit])
+            per_tpd[tpd]["h"].append(hours[hit])
             per_tpd[tpd]["mon"].append(win)
             if tpd == PRIMARY_TPD:
                 line += f" | 阈值={thr:.4f} {nb / nd:.1f}单/天 胜率={win * 100:.2f}%"
@@ -252,6 +299,23 @@ def main() -> None:
         print(f"\n[主操作点 tpd={PRIMARY_TPD:g}] 逐月胜率：")
         print("  " + "  ".join(f"{r['ym'][2:]}:{m * 100:.1f}%"
                               for r, m in zip(rows, p["mon"])))
+    if p["h"]:
+        # 时段诊断（零训练成本）：若胜率集中在少数 UTC 小时，说明「全天候摊薄」是差距来源之一
+        hv = np.concatenate(p["h"])
+        yv2 = np.concatenate(p["y"])
+        sv2 = np.concatenate(p["s"])
+        wv = ((sv2 > 0).astype(int) == yv2).astype(np.int8)
+        print(f"\n[主操作点 tpd={PRIMARY_TPD:g}] 按 UTC 小时：单量/胜率")
+        cells = []
+        for hh in range(24):
+            mk = hv == hh
+            n_h = int(mk.sum())
+            if n_h >= 20:
+                cells.append(f"{hh:02d}h:{n_h:>4} {wv[mk].mean() * 100:>5.1f}%")
+            else:
+                cells.append(f"{hh:02d}h:{n_h:>4}   —  ")
+        for i in range(0, 24, 6):
+            print("  " + " | ".join(cells[i:i + 6]))
     log("DONE")
 
 
