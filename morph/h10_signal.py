@@ -84,6 +84,10 @@ PLACEBO = os.environ.get("PLACEBO", "0") == "1"
 PLACEBO_SEEDS = int(os.environ.get("PLACEBO_SEEDS", "2"))
 # 结构位特征（前高前低/整数关口/日内开盘/影线/多周期共振），默认关闭保持基线不变
 WITH_STRUCT = os.environ.get("STRUCT", "0") == "1"
+# 时段筛选：白名单只用「训练窗 thr 段」的胜率定（严格因果），test 只在该时段下单
+HOURFILT = os.environ.get("HOURFILT", "0") == "1"
+HOUR_BLOCK = int(os.environ.get("HOUR_BLOCK", "3"))     # 每块几小时（24 除以它要是整数）
+HOUR_MIN_WIN = float(os.environ.get("HOUR_MIN_WIN", "0.55"))  # 块胜率门槛
 T = time.time()
 
 
@@ -181,6 +185,8 @@ def main() -> None:
 
     per_tpd: dict[float, dict[str, list]] = {
         t: dict(s=[], y=[], d=[], h=[], mon=[]) for t in TPD_LIST}
+    hf_s: list[np.ndarray] = []
+    hf_y: list[np.ndarray] = []
     rows = []
     for m in months:
         m_start = int(dt.datetime.strptime(m + "-01", "%Y-%m-%d")
@@ -245,6 +251,25 @@ def main() -> None:
                 f"({nd}天) iter={int(np.mean(its))} AUC={auc:.4f}")
         if PLACEBO:
             line += f" | placebo AUC={pl_auc:.4f} 胜率={pl_win * 100:.2f}%"
+        # 【严格因果的时段筛选】白名单只用 thr 段（全部早于目标月）的块胜率定，
+        # 绝不看 test。这是「直播类 15 单/天 62%」最可能的来源，必须单独验证。
+        ok_blk: list[int] = []
+        if HOURFILT:
+            yth = th["target"].to_numpy().astype(np.int8)
+            hth = ((th["close_time"].to_numpy() // 3_600_000) % 24).astype(np.int8)
+            bth = (hth // HOUR_BLOCK).astype(np.int8)
+            thr_p = float(np.quantile(np.abs(pth - .5), 1 - PRIMARY_TPD / BARS_PER_DAY))
+            m_p = np.abs(pth - .5) >= thr_p
+            parts = []
+            for bi in range(24 // HOUR_BLOCK):
+                mk = m_p & (bth == bi)
+                if mk.sum() >= 30:
+                    w_b = float(((pth[mk] - .5 > 0).astype(int) == yth[mk]).mean())
+                    parts.append(f"{bi * HOUR_BLOCK:02d}-{(bi + 1) * HOUR_BLOCK - 1:02d}h"
+                                 f":{w_b * 100:.0f}%({int(mk.sum())})")
+                    if w_b >= HOUR_MIN_WIN:
+                        ok_blk.append(bi)
+            line += f"\n    波段(训练窗): " + " ".join(parts) + f" → 白名单 {ok_blk}"
         for tpd in TPD_LIST:
             thr = float(np.quantile(np.abs(pth - .5), 1 - tpd / BARS_PER_DAY))
             hit = np.abs(s) >= thr
@@ -261,6 +286,15 @@ def main() -> None:
             per_tpd[tpd]["mon"].append(win)
             if tpd == PRIMARY_TPD:
                 line += f" | 阈值={thr:.4f} {nb / nd:.1f}单/天 胜率={win * 100:.2f}%"
+                if ok_blk:
+                    b_te = (hours // HOUR_BLOCK).astype(np.int8)
+                    hit_f = hit & np.isin(b_te, ok_blk)
+                    if int(hit_f.sum()) >= 30:
+                        w_f = float(((s[hit_f] > 0).astype(int) == y[hit_f]).mean())
+                        hf_s.append(s[hit_f])
+                        hf_y.append(y[hit_f])
+                        line += (f" | 时段筛选 {int(hit_f.sum()) / nd:.1f}单/天"
+                                 f" 胜率={w_f * 100:.2f}%")
         rows.append(dict(ym=m, test=te.height, nd=nd, auc=auc, iter=int(np.mean(its)),
                          pl_auc=pl_auc))
         log(line)
@@ -316,6 +350,15 @@ def main() -> None:
                 cells.append(f"{hh:02d}h:{n_h:>4}   —  ")
         for i in range(0, 24, 6):
             print("  " + " | ".join(cells[i:i + 6]))
+    if hf_y:
+        sv3 = np.concatenate(hf_s)
+        yv3 = np.concatenate(hf_y)
+        w3 = ((sv3 > 0).astype(int) == yv3)
+        win3 = float(w3.mean())
+        nd_all = sum(r["nd"] for r in rows)
+        ev3 = "".join(f"{p * win3 - (1 - win3):>+9.3f}" for p in PAYOUTS)
+        print(f"\n[时段筛选 tpd={PRIMARY_TPD:g}] n={len(w3)} 单/天={len(w3) / nd_all:.1f} "
+              f"胜率={win3 * 100:.2f}% EV={ev3}  ← 白名单由训练窗定，无前视")
     log("DONE")
 
 
