@@ -18,8 +18,8 @@ VWAP 偏离 × 3 窗口），判定"无效"。2026-11-15 用户指出四个缺�
 --------------
 - 价格按 **log 绝对分桶**（桶宽 `VP_RES` bp），不随行漂移；
 - 剖面每 `VP_ANCHOR` 根 bar 重算，且**只用已完成的块**（块号 < 当前块）→ 不可能偷未来；
-- 滚动和用环形缓冲增量更新：O(n) 时间、常数内存；
-- 按块向量化（同一块内 15 行共享同一剖面），避免逐行 Python 开销。
+- 滚动和在 padded 缓冲区上**原位增量更新**（只动当前块涉及的几个桶），单块 O(块内桶数)，
+  与全局桶数 B 无关；环形缓冲只存每个块的 (桶, 量, delta, 访问) 四个小数组。
 
 产出 45 列：vp8h_* / vp24h_* 各 21 列 + vp_poc_shift / vp_recent24 / vp_recent8。
 
@@ -39,7 +39,7 @@ NAMES_BASE = ["dist_poc", "poc_share", "vol_rel", "vol_pm1", "vol_pm2", "grad2",
 
 
 def _block_feats(P, D, C, S, pbs, R: int, res_bps: float) -> np.ndarray:
-    """一个块内所有行的 22 列特征；P/D/C/S 已在两端 pad 了 R 个零。"""
+    """一个块内所有行的 22 列特征；P/D/C/S 是已 pad 过 R 的滚动剖面。"""
     m = pbs.size
     idx = pbs[:, None] + np.arange(2 * R + 1)[None, :]      # 中心落在第 R 列
     L = P[idx]
@@ -54,7 +54,7 @@ def _block_feats(P, D, C, S, pbs, R: int, res_bps: float) -> np.ndarray:
     rows = np.arange(m)
 
     Ls = L.copy()
-    Ls[:, c] = -1.0                          # 把当前桶压到最低，top4 天然排除它
+    Ls[:, c] = -1.0                          # 当前桶压到最低，top4 天然排除它
     sel = np.argsort(-Ls, axis=1)[:, :4]
     top_dist = (sel - c) * res_bps
     top_share = L[rows[:, None], sel].sum(1) / s
@@ -66,9 +66,6 @@ def _block_feats(P, D, C, S, pbs, R: int, res_bps: float) -> np.ndarray:
 
     above = s - cm[:, c]
     below = cm[:, c] - L[:, c]
-    touches_pb = C[pbs + c]
-    touches_poc = C[pbs + imax]
-    recent = S[pbs + c] / (P[pbs + c] + 1e-9)
 
     out = np.empty((m, 22), np.float64)
     out[:, 0] = (imax - c) * res_bps
@@ -88,9 +85,9 @@ def _block_feats(P, D, C, S, pbs, R: int, res_bps: float) -> np.ndarray:
     out[:, 16] = Dq[:, c] / (L[:, c] + 1e-9)
     out[:, 17] = (Dq[:, c + 2] - Dq[:, c - 2]) / mean
     out[:, 18] = (Dq[:, c + 1:].sum(1) - Dq[:, :c + 1].sum(1)) / s
-    out[:, 19] = touches_pb
-    out[:, 20] = touches_poc
-    out[:, 21] = recent
+    out[:, 19] = C[pbs + c]
+    out[:, 20] = C[pbs + imax]
+    out[:, 21] = S[pbs + c] / (P[pbs + c] + 1e-9)
     return out
 
 
@@ -127,12 +124,13 @@ def add_vp(df: pl.DataFrame, feats: list[str]) -> tuple[pl.DataFrame, list[str]]
     bb -= bb.min()
     B = int(bb.max()) + 1
     res_bps = res * 1e4
-    pad = np.zeros(R, np.float64)
 
     wins = (w_short, w_mid, w_long)
-    rv = {w: np.zeros(B, np.float64) for w in wins}
-    rd = {w: np.zeros(B, np.float64) for w in wins}
-    rc = {w: np.zeros(B, np.float64) for w in wins}
+    Bp = B + 2 * R
+    P = {w: np.zeros(Bp) for w in wins}      # 成交量剖面
+    Dd = {w: np.zeros(Bp) for w in wins}     # 签名成交量剖面
+    Cc = {w: np.zeros(Bp) for w in wins}     # 访问次数剖面
+    filled = {w: 0 for w in wins}
     M = max(wins) + 2
     ring: list = [None] * M
     nb = (n + anchor - 1) // anchor
@@ -142,45 +140,40 @@ def add_vp(df: pl.DataFrame, feats: list[str]) -> tuple[pl.DataFrame, list[str]]
                         + ["vp_poc_shift", "vp_recent24", "vp_recent8"])
     out = np.full((n, len(names)), np.nan, np.float32)
 
+    def upd(w: int, kk: int, sign: float) -> None:
+        rec = ring[kk % M]
+        if rec is None:
+            return
+        b_a, v_a, d_a, c_a = rec
+        j = b_a + R                            # 平移到 padded 坐标
+        P[w][j] += sign * v_a
+        Dd[w][j] += sign * d_a
+        Cc[w][j] += sign * c_a
+        P[w][j] = np.maximum(P[w][j], 0.0)     # 增量加减的浮点残差截到非负
+        Cc[w][j] = np.maximum(Cc[w][j], 0.0)
+
     for k in range(nb):
         if k >= 1:
-            rec = ring[(k - 1) % M]
-            if rec is not None:
-                b_a, v_a, d_a, c_a = rec
-                for w in wins:
-                    np.add.at(rv[w], b_a, v_a)
-                    np.add.at(rd[w], b_a, d_a)
-                    np.add.at(rc[w], b_a, c_a)
+            for w in wins:
+                upd(w, k - 1, 1.0)
+                filled[w] += 1
         for w in wins:
             old = k - 1 - w
             if old >= 0:
-                rec = ring[old % M]
-                if rec is not None:
-                    b_a, v_a, d_a, c_a = rec
-                    np.add.at(rv[w], b_a, -v_a)
-                    np.add.at(rd[w], b_a, -d_a)
-                    np.add.at(rc[w], b_a, -c_a)
+                upd(w, old, -1.0)
+                filled[w] -= 1
 
         i0, i1 = k * anchor, min(n, (k + 1) * anchor)
         bins = bb[i0:i1]
         uniq, inv = np.unique(bins, return_inverse=True)
         ring[k % M] = (uniq, np.bincount(inv, weights=v[i0:i1]),
                        np.bincount(inv, weights=dv[i0:i1]),
-                       (np.bincount(inv) > 0).astype(np.float64))   # 每块内「访问过」=1
+                       (np.bincount(inv) > 0).astype(np.float64))
 
-        if rv[w_long].sum() <= 0:
-            continue                      # 视窗还没填满，留 NaN
-        pbs = bins
-        # 增量加减会留浮点残差（可能 -1e-18），量类一律截到非负
-        Pm = np.concatenate((pad, np.maximum(rv[w_mid], 0.0), pad))
-        Pl = np.concatenate((pad, np.maximum(rv[w_long], 0.0), pad))
-        Dm = np.concatenate((pad, rd[w_mid], pad))
-        Dl = np.concatenate((pad, rd[w_long], pad))
-        Cm = np.concatenate((pad, np.maximum(rc[w_mid], 0.0), pad))
-        Cl = np.concatenate((pad, np.maximum(rc[w_long], 0.0), pad))
-        Sp = np.concatenate((pad, np.maximum(rv[w_short], 0.0), pad))
-        f8 = _block_feats(Pm, Dm, Cm, Sp, pbs, R, res_bps)
-        f24 = _block_feats(Pl, Dl, Cl, Sp, pbs, R, res_bps)
+        if filled[w_long] < 2:
+            continue
+        f8 = _block_feats(P[w_mid], Dd[w_mid], Cc[w_mid], P[w_short], bins, R, res_bps)
+        f24 = _block_feats(P[w_long], Dd[w_long], Cc[w_long], P[w_short], bins, R, res_bps)
         out[i0:i1, :21] = f8[:, :21]
         out[i0:i1, 21:42] = f24[:, :21]
         out[i0:i1, 42] = f8[:, 0] - f24[:, 0]
