@@ -666,6 +666,43 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
     ),
+    # h10sig 的单变量衍生（2026-11-15，基线 tpd=8 无前视 63.32%）。
+    # A：es/thr 压到各 3% —— 基线里 thr 10%+es 5% 占 219 天，模型预测时最后一次见数据是 219 天前。
+    "h10sigA": dict(
+        slug="byh850515/btcusdt-h10-causal-a",
+        title="BTCUSDT H10 Causal A",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.03", "THR_FRAC": "0.03",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
+    ),
+    # B：滚动窗 4 年 -> 2 年，适应最近 regime（其余同基线）。
+    "h10sigB": dict(
+        slug="byh850515/btcusdt-h10-causal-b",
+        title="BTCUSDT H10 Causal B",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "730", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
+    ),
+    # C：多一个月真正没看过的样本外（2026-11 只有半个月，样本少，仅作前向确认）。
+    "h10sigC": dict(
+        slug="byh850515/btcusdt-h10-causal-c",
+        title="BTCUSDT H10 Causal C",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-11",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
+    ),
     # bar 尺度隔离（2026-11-15）：外部 notebook h=10 报 58.3%，用的是 5m bar；我们全部
     # 历史实验都是 1m bar（h=10 = 预测 10 步、标签重叠 10 根）。同一份 K 线数据只换
     # bar 尺度（1/5/10m），阈值纪律不变，看 4.6pp 的差距有多少来自这一条。
