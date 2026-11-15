@@ -725,7 +725,7 @@ PROJECTS = {
     # 这里按 §35.3 的规矩复跑：10 窗口（2026-01~10，与 §33 逐月对齐）、5 seed、全量 stride=1、
     # 因果阈值、主操作点 tpd=8；判据 = base 能否复现 63.32% + 逐月配对差 + 按天 bootstrap CI。
     "h10asym": dict(
-        slug="byh850515/btcusdt-h10-asym",
+        slug="byh850515/btcusdt-h10-asym-feature",
         title="BTCUSDT H10 Asym Feature",
         entry="morph.h10_asym",
         enable_internet=True,
