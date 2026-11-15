@@ -704,6 +704,22 @@ PROJECTS = {
              "WINDOWS": "2026-08,2026-09,2026-10", "STRIDES": "1,10", "TPD": "8",
              "KLINE_FROM": "2020"},
     ),
+    # regime 分裂专模「重做」（2026-11-15）：用户指出 §30 的判负可能做得不够好（旧版 h=3 +
+    # 盘口 15 个月 + 固定常数硬规则）。这里换 h=10 K 线 6.7 年、regime 阈值取训练窗分位、
+    # 每 expert 各自早停并各自定阈值，一遍同时对照 base / asym / cat_* / split_* 四条路线。
+    # 判读：split 若能追平甚至超过 cat_*，说明 regime 分裂本身有价值；若 split ≪ cat_* 而
+    # cat ≈ base，则 regime 信息不值得建模，停在特征层面。
+    "h10reg": dict(
+        slug="byh850515/btcusdt-h10-regime",
+        title="BTCUSDT H10 Regime",
+        entry="morph.h10_regime",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "WINDOWS": "2026-06,2026-07,2026-08,2026-09,2026-10",
+             "STRIDE": "10", "TPD": "8", "ASYM": "1", "FLOW": "1", "KLINE_FROM": "2020"},
+    ),
     # ETH h=10（2026-11-15）：BTC h=10 已定案 63.59%，但 ETH 只测过 h=30（月度 std 10.6pp、
     # 连续 3 个月破 45%，判负）。h=10 从未测过，用同一套因果阈值管线跑一次。
     "h10eth": dict(
