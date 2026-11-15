@@ -815,6 +815,24 @@ PROJECTS = {
              "PLACEBO": "1", "PLACEBO_SEEDS": "2",
              "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
     ),
+    # h=15 优化第一刀：训练窗 4 年 → 6.7 年（与 h=30 的唯一差别就是这一条）。
+    # 依据不是猜的：§37 在 h=30 上实测「2 年 → 6.7 年」把月 std 从 10.6pp 砍到 4.28pp、
+    # 月 min 从 43.7% 抬到 50.56%，而 h=15 摸底（h15sig）恰恰是月 std 9.80pp / 月 min 47.50%
+    # / 滚动100单 min 33.0% / 破50%窗 17.1% —— 稳定性明显比 h=10 差一个档，正是窗短的典型症状。
+    # h=15 独立样本 4 年 ≈ 14 万 → 6.7 年 ≈ 23.5 万，代价只是训练行数变多（stride 抽样后仍轻）。
+    "h15sigB": dict(
+        slug="byh850515/btcusdt-h15-causal-b",
+        title="BTCUSDT H15 Causal B",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "15", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "2400", "STRIDE": "15",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PLACEBO": "0", "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
+    ),
     # bar 尺度隔离（2026-11-15）：外部 notebook h=10 报 58.3%，用的是 5m bar；我们全部
     # 历史实验都是 1m bar（h=10 = 预测 10 步、标签重叠 10 根）。同一份 K 线数据只换
     # bar 尺度（1/5/10m），阈值纪律不变，看 4.6pp 的差距有多少来自这一条。
