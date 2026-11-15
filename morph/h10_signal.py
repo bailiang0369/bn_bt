@@ -136,10 +136,10 @@ def add_struct(df: pl.DataFrame, feats: list[str]) -> tuple[pl.DataFrame, list[s
         e += [((h - body_hi) / c * 1e4).alias("st_upshadow"),
               ((body_lo - lo_) / c * 1e4).alias("st_dnshadow")]
     # 整数关口距离（BTC 按 1000、ETH 按 100）：距最近关口的带符号 bp
-    step = 1000.0 if SYMBOL.upper().startswith("BTC") else 100.0
+    step = 1000.0 if kl.SYMBOL.upper().startswith("BTC") else 100.0
     e.append(((((c / step) % 1.0) - 0.5) * step / c * 1e4).alias("st_round"))
     # 日内（UTC 0 点）开盘价距离
-    day_open = c.first().over((pl.col("close_time") // 86_400_000).alias("_d"))
+    day_open = c.first().over(pl.col("close_time") // 86_400_000)
     e.append(((c / day_open - 1) * 1e4).alias("st_dayopen"))
     # 多周期共振：5/15/60/240/1440 分钟动量同向的个数（-5..5）
     if "lg_ret1440" in df.columns:
