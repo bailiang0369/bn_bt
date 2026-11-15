@@ -720,6 +720,22 @@ PROJECTS = {
              "WINDOWS": "2026-06,2026-07,2026-08,2026-09,2026-10",
              "STRIDE": "10", "TPD": "8", "ASYM": "1", "FLOW": "1", "KLINE_FROM": "2020"},
     ),
+    # asym 特征的**正式口径**复核（2026-11-15）：h10reg 里 asym 是唯一正向项（+0.59pp、
+    # 最差月 55.05%→61.04%），但那是 2 seed/5 窗口/stride=10 的探索口径，不足以进基线。
+    # 这里按 §35.3 的规矩复跑：10 窗口（2026-01~10，与 §33 逐月对齐）、5 seed、全量 stride=1、
+    # 因果阈值、主操作点 tpd=8；判据 = base 能否复现 63.32% + 逐月配对差 + 按天 bootstrap CI。
+    "h10asym": dict(
+        slug="byh850515/btcusdt-h10-asym",
+        title="BTCUSDT H10 Asym Feature",
+        entry="morph.h10_asym",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "ASYM": "1", "FLOW": "1", "BOOT": "2000", "KLINE_FROM": "2020"},
+    ),
     # ETH h=10（2026-11-15）：BTC h=10 已定案 63.59%，但 ETH 只测过 h=30（月度 std 10.6pp、
     # 连续 3 个月破 45%，判负）。h=10 从未测过，用同一套因果阈值管线跑一次。
     "h10eth": dict(
