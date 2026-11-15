@@ -86,6 +86,8 @@ PLACEBO = os.environ.get("PLACEBO", "0") == "1"
 PLACEBO_SEEDS = int(os.environ.get("PLACEBO_SEEDS", "2"))
 # 结构位特征（前高前低/整数关口/日内开盘/影线/多周期共振），默认关闭保持基线不变
 WITH_STRUCT = os.environ.get("STRUCT", "0") == "1"
+# 流动性与价格冲击（taker 占比/冲击/深度/单笔规模），默认关闭
+WITH_LIQ = os.environ.get("LIQ", "0") == "1"
 # 时段筛选：白名单只用「训练窗 thr 段」的胜率定（严格因果），test 只在该时段下单
 HOURFILT = os.environ.get("HOURFILT", "0") == "1"
 HOUR_BLOCK = int(os.environ.get("HOUR_BLOCK", "3"))     # 每块几小时（24 除以它要是整数）
@@ -247,6 +249,48 @@ def build_bar(df: pl.DataFrame, bar: int) -> tuple[pl.DataFrame, list[str]]:
     return out, [x for x in out.columns if x.startswith("b_")]
 
 
+def add_liq(df: pl.DataFrame, feats: list[str]) -> tuple[pl.DataFrame, list[str]]:
+    """流动性与价格冲击特征（**不做成交量绝对值/量比**）。
+
+    用户的判断（2026-11-15 采纳）：成交量单独是垃圾——它只反映「现在是不是活跃时段」
+    （日内 U 型、牛熊、周内变化），与方向无关；量比同理。真正的信息在
+    「**推动 1bp 需要多少量**」：挂单薄的时候，很小的成交量也能推动大波动。
+
+    所以这里只用比值/强度：
+      lq_taker{n}   主动买占比（谁在吃单，有方向性）
+      lq_takerd{n}  快均 taker − 240 均 taker（主动性**突变**比水平更有意义）
+      lq_impact{n}  log(Σ|r1| / Σ量) —— 单位成交量的价格冲击，低量推大波动 → 值大
+      lq_depth{n}   Σ量 / 价格区间 —— 每 bp 波动消耗多少量，薄盘 → 值小
+      lq_avgtrd     量 / 笔数 —— 平均单笔规模（大单 vs 散单的代理）
+    """
+    c = pl.col("close").cast(pl.Float64)
+    r1 = (c / c.shift(1)).log() * 1e4
+    b = pl.col("um_buy_vol").cast(pl.Float64)
+    s = pl.col("um_sell_vol").cast(pl.Float64)
+    v = b + s
+    cnt = pl.col("um_count").cast(pl.Float64)
+    tk = b / (v + 1e-9)
+    e: list[pl.Expr] = []
+    for n in (15, 60, 240):
+        ms = max(2, n // 2)
+        e.append(tk.rolling_mean(n, min_samples=ms).alias(f"lq_taker{n}"))
+        e.append((tk.rolling_mean(n, min_samples=ms)
+                  - tk.rolling_mean(240, min_samples=120)).alias(f"lq_takerd{n}"))
+    for n in (15, 60, 240):
+        ms = max(2, n // 2)
+        imp = (r1.abs().rolling_sum(n, min_samples=ms)
+               / (v.rolling_sum(n, min_samples=ms) / 1e3 + 1e-9))
+        e.append(imp.log1p().alias(f"lq_impact{n}"))
+    for n in (60, 240):
+        ms = max(2, n // 2)
+        rng = ((c.rolling_max(n, min_samples=ms) - c.rolling_min(n, min_samples=ms))
+               / c * 1e4)
+        e.append((v.rolling_sum(n, min_samples=ms) / (rng + 1e-9) / 1e3).alias(f"lq_depth{n}"))
+    e.append((v / (cnt + 1e-9)).alias("lq_avgtrd"))
+    out = df.with_columns(e)
+    return out, feats + [x for x in out.columns if x.startswith("lq_")]
+
+
 def roll_worst(w: np.ndarray, n: int = 100) -> tuple[float, float]:
     """滚动 n 单最差胜率 / 破 50% 窗口占比（单序评估，最贴近实盘体感）。"""
     if len(w) < n:
@@ -268,6 +312,8 @@ def main() -> None:
     df, feats = add_flow(df, feats)
     if WITH_STRUCT:
         df, feats = add_struct(df, feats)
+    if WITH_LIQ:
+        df, feats = add_liq(df, feats)
     df = add_target(df, HORIZON).filter(
         pl.col("target").is_not_null() & pl.col("close").is_not_null()).sort("close_time")
     df = df.with_columns(
