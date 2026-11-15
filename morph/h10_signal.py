@@ -31,7 +31,14 @@ flow_divergence）。全部只用 past，无前视。
 env
 ---
   SYMBOL / HORIZON=10 / SEEDS=42,... / ROUNDS / WIN_DAYS=1460 / ES_FRAC / THR_FRAC
-  START_MONTH / END_MONTH / TPD_LIST / PRIMARY_TPD=8 / KLINE_FROM / PAYOUT
+  START_MONTH / END_MONTH / TPD_LIST / PRIMARY_TPD=8 / KLINE_FROM / PAYOUTS
+  STRIDE=1（=HORIZON 抽样加速，正式数字保持 1）/ PLACEBO=0（=1 打乱标签查泄漏）
+  PLACEBO_SEEDS=2 / BARS_PER_DAY=1440（阈值分位分母，与 1m bar 的机会数对齐）
+
+换 horizon 用法（2026-11-15 起，h=30 摸底）
+------------------------------------------
+  HORIZON=30 WIN_DAYS=2400 STRIDE=30 TPD_LIST=1,2,4,8 PRIMARY_TPD=4
+  PLACEBO=1 PAYOUTS=0.853,0.85
 """
 from __future__ import annotations
 
@@ -65,8 +72,16 @@ START_MONTH = os.environ.get("START_MONTH", "2026-01")
 END_MONTH = os.environ.get("END_MONTH", "2026-10")
 TPD_LIST = [float(x) for x in os.environ.get("TPD_LIST", "2,5,8,15,30").split(",") if x.strip()]
 PRIMARY_TPD = float(os.environ.get("PRIMARY_TPD", "8"))
-PAYOUTS = [0.80, 0.828]
-BARS_PER_DAY = 1440
+PAYOUTS = [float(x) for x in os.environ.get("PAYOUTS", "0.80,0.828").split(",") if x.strip()]
+# 阈值分位分母：test 是 1m 行，所以 1440 = 每天 1440 个候选位置。
+# 保持 1440 才与 h=10 的 63.32% 同口径（实盘合并同一段连续触发是另一回事，见 §36 之后的口径备忘）。
+BARS_PER_DAY = int(os.environ.get("BARS_PER_DAY", "1440"))
+# 标签重叠 HORIZON 根：stride=HORIZON 抽样已证等价（§35），只用于摸底/月度重训；
+# 对外正式数字保持 STRIDE=1（全量）。
+STRIDE = int(os.environ.get("STRIDE", "1"))
+# 泄漏检查：训练+早停标签一起打乱，test AUC 必须回落到 0.50（§35.3 定的换 horizon 准入检查）
+PLACEBO = os.environ.get("PLACEBO", "0") == "1"
+PLACEBO_SEEDS = int(os.environ.get("PLACEBO_SEEDS", "2"))
 T = time.time()
 
 
@@ -132,6 +147,8 @@ def main() -> None:
         if tr_all.height < 100_000 or te.height < 1000:
             log(f"[{m}] 样本不足（{tr_all.height:,}/{te.height:,}），跳过")
             continue
+        if STRIDE > 1:
+            tr_all = tr_all.gather_every(STRIDE)
         h_all = tr_all.height
         c1 = int(h_all * (1 - ES_FRAC - THR_FRAC))
         c2 = int(h_all * (1 - THR_FRAC))
@@ -148,14 +165,36 @@ def main() -> None:
             its.append(int(mdl.best_iteration))
             pth += mdl.predict(Xth, num_iteration=mdl.best_iteration) / len(SEEDS)
             pte += mdl.predict(Xte, num_iteration=mdl.best_iteration) / len(SEEDS)
-        del Xtr, Xes, Xth, Xte
         y = te["target"].to_numpy().astype(np.int8)
         days = ge.day_id(te["close_time"].to_numpy())
         nd = len(np.unique(days))
+        pl_auc, pl_win = float("nan"), float("nan")
+        if PLACEBO:
+            # 泄漏检查：训练与早停标签一起打乱，test AUC 必须回落到 0.50
+            rng = np.random.default_rng(20261115)
+            ysh, yesh = ytr.copy(), yes.copy()
+            rng.shuffle(ysh)
+            rng.shuffle(yesh)
+            npl = min(len(SEEDS), PLACEBO_SEEDS)
+            pth_pl = np.zeros(th.height)
+            pte_pl = np.zeros(te.height)
+            for seed in SEEDS[:npl]:
+                mdl = fit(Xtr, ysh, feats, Xes, yesh, seed=seed)
+                pth_pl += mdl.predict(Xth, num_iteration=mdl.best_iteration) / npl
+                pte_pl += mdl.predict(Xte, num_iteration=mdl.best_iteration) / npl
+            pl_auc = float(roc_auc_score(y, pte_pl))
+            thr_pl = float(np.quantile(np.abs(pth_pl - .5), 1 - PRIMARY_TPD / BARS_PER_DAY))
+            hit_pl = np.abs(pte_pl - .5) >= thr_pl
+            if int(hit_pl.sum()) >= 30:
+                pl_win = float(((pte_pl[hit_pl] - .5 > 0).astype(int) == y[hit_pl]).mean())
+            del pth_pl, pte_pl, hit_pl, ysh, yesh
+        del Xtr, Xes, Xth, Xte
         s = pte - .5
         auc = float(roc_auc_score(y, pte))
         line = (f"[{m}] train={c1:,} es={es.height:,} thr={th.height:,} test={te.height:,}"
                 f"({nd}天) iter={int(np.mean(its))} AUC={auc:.4f}")
+        if PLACEBO:
+            line += f" | placebo AUC={pl_auc:.4f} 胜率={pl_win * 100:.2f}%"
         for tpd in TPD_LIST:
             thr = float(np.quantile(np.abs(pth - .5), 1 - tpd / BARS_PER_DAY))
             hit = np.abs(s) >= thr
@@ -171,7 +210,8 @@ def main() -> None:
             per_tpd[tpd]["mon"].append(win)
             if tpd == PRIMARY_TPD:
                 line += f" | 阈值={thr:.4f} {nb / nd:.1f}单/天 胜率={win * 100:.2f}%"
-        rows.append(dict(ym=m, test=te.height, nd=nd, auc=auc, iter=int(np.mean(its))))
+        rows.append(dict(ym=m, test=te.height, nd=nd, auc=auc, iter=int(np.mean(its)),
+                         pl_auc=pl_auc))
         log(line)
 
     if not rows:

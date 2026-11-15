@@ -729,6 +729,27 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-11",
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
     ),
+    # h=30 因果口径摸底（2026-11-15）：仓库里 h=30 只有前视 top-K 的 55.20%（月 min 43.7%、
+    # EV@0.853 仅 +2.3%），与 h=10 的因果 63.32% 不同口径、不可比。先把 h10_signal 管线
+    # 参数化到 h=30 拿同口径数字。判据预登记：因果口径 ≥58% 才进特征 A/B；56~58% 只当分散
+    # 配置；<56% 直接放弃 h=30（h=30 要打平 h=10 的 +14% EV 需 61.5% 胜率）。
+    # 关键调整：训练窗拉到 6.7 年（h=30 独立样本 = 3.6M/30 ≈ 12 万；历史 h=30 用 2 年滚动窗
+    # 只有 3.5 万）、stride=30 抽样（与全量等价，§35）、placebo 一档（§35.3 换 horizon 准入）。
+    # 成本 ~15 分钟；bar 尺度仍用 1m（E2 已否），订单簿腿不参与（信息寿命 3~5 分钟）。
+    "h30sig": dict(
+        slug="byh850515/btcusdt-h30-causal-signal",
+        title="BTCUSDT H30 Causal Signal",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "30", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "2400", "STRIDE": "30",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "1,2,4,8", "PRIMARY_TPD": "4",
+             "PLACEBO": "1", "PLACEBO_SEEDS": "2",
+             "PAYOUTS": "0.853,0.85", "KLINE_FROM": "2020"},
+    ),
     # bar 尺度隔离（2026-11-15）：外部 notebook h=10 报 58.3%，用的是 5m bar；我们全部
     # 历史实验都是 1m bar（h=10 = 预测 10 步、标签重叠 10 根）。同一份 K 线数据只换
     # bar 尺度（1/5/10m），阈值纪律不变，看 4.6pp 的差距有多少来自这一条。
