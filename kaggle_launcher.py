@@ -1259,11 +1259,13 @@ def _decode_logs(raw):
 
 
 def _logs(slug, parse=False):
-    # Windows 控制台默认 GBK，kaggle CLI 输出是 UTF-8：不解码会 UnicodeDecodeError
+    # Windows 控制台默认 GBK，kaggle CLI 输出是 UTF-8：不解码会 UnicodeDecodeError；
+    # 含 \ufffd 的乱码行还会在 print 时抛 UnicodeEncodeError，所以统一走 errors="replace"
     out = subprocess.run(["kaggle", "kernels", "logs", slug],
                          capture_output=True, encoding="utf-8", errors="replace").stdout
     text = _decode_logs(out or "")
-    print(text)
+    enc = sys.stdout.encoding or "utf-8"
+    sys.stdout.write(text.encode(enc, errors="replace").decode(enc, errors="replace") + "\n")
     if parse:
         print("=== 关键指标 ===")
         for ln in text.splitlines():
