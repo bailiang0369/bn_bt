@@ -729,27 +729,6 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-11",
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
     ),
-    # h=10 + VP 逐分桶剖面（2026-11-15）：**不改 h10_signal.py**，运行时包一层 kl.build 注入特征。
-    # 触发：第 12 轮 kline_vp 的 15 列汇总标量被判定无效，但那 15 列没有编码用户指出的四点
-    # （非 POC 分桶的阻力 / 价格与各桶相对位置 / 桶存量 vs 近期流量 vs 主动买卖 / 同桶时撑时不撑）。
-    # 本实验 45 列：8h 与 24h 两个剖面 × 21 列 + POC 位移 + 3h/24h 存量比，桶宽 20bp、
-    # 剖面每 15 根 bar 用**已完成块**重算（已通过「改未来数据→历史特征逐位不变」自检）。
-    # 对照 h10sig：AUC 0.5366 / tpd=8 63.32% @19.9 单/天 / 月min 55.74% / 月std 4.54pp。
-    # 判据先写死：tpd=8 ≥64.3%（+1pp）或 AUC +0.005 才算有信号；≤63.3% 判无效。
-    "h10vp": dict(
-        slug="byh850515/btcusdt-h10-vp-profile",
-        title="BTCUSDT H10 + VP Profile",
-        entry="morph.h10_vp",
-        enable_internet=True,
-        dataset_sources=[],
-        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43,44,45,46",
-             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
-             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
-             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
-             "PAYOUTS": "0.80,0.828", "KLINE_FROM": "2020",
-             "VP_RES": "20", "VP_ANCHOR": "15", "VP_W_SHORT": "12",
-             "VP_W_MID": "32", "VP_W_LONG": "96", "VP_R": "25"},
-    ),
     # ETH h=30 因果口径对齐（2026-11-15）：用户在 BTC h=30 摸底后问「BTC 都这样，ETH 岂不是
     # 更差」。ETH h=30 的旧结论（59.19%、月 std 10.60pp、连续三月 42.8/49.7/44.2 判负）是
     # **前视 top-K + 2 年滚动窗**下的，与 §37 的发现（窗口 2 年→6.7 年能把月 std 砍到 4.28pp）
