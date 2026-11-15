@@ -691,6 +691,19 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
     ),
+    # ETH h=10（2026-11-15）：BTC h=10 已定案 63.59%，但 ETH 只测过 h=30（月度 std 10.6pp、
+    # 连续 3 个月破 45%，判负）。h=10 从未测过，用同一套因果阈值管线跑一次。
+    "h10eth": dict(
+        slug="byh850515/ethusdt-h10-causal-signal",
+        title="ETHUSDT H10 Causal Signal",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "ETHUSDT", "HORIZON": "10", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-11",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
+    ),
     # C：多一个月真正没看过的样本外（2026-11 只有半个月，样本少，仅作前向确认）。
     "h10sigC": dict(
         slug="byh850515/btcusdt-h10-causal-c",
