@@ -32,9 +32,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from morph import h10_signal as base  # noqa: E402
 from morph.vp_profile import add_vp  # noqa: E402
 
-if base.BAR > 1:
-    raise SystemExit("本脚本只支持 BAR=1（BAR>1 走 build_bar，特征口径不同，未接）")
-
 _orig_build = base.kl.build
 
 
@@ -46,5 +43,13 @@ def _build_with_vp(raw):
     return df, feats
 
 
-base.kl.build = _build_with_vp          # 只影响本进程，不落盘、不改文件
-base.main()
+def main() -> None:
+    """bootstrap 通过 `module.main()` 调入口，所以必须显式定义（v1 就因为这个报 ERROR）。"""
+    if base.BAR > 1:
+        raise SystemExit("本脚本只支持 BAR=1（BAR>1 走 build_bar，特征口径不同，未接）")
+    base.kl.build = _build_with_vp      # 只影响本进程，不落盘、不改文件
+    base.main()
+
+
+if __name__ == "__main__":
+    main()
