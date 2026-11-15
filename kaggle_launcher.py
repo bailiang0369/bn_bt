@@ -791,6 +791,30 @@ PROJECTS = {
              "PLACEBO": "1", "PLACEBO_SEEDS": "2",
              "PAYOUTS": "0.853,0.85", "KLINE_FROM": "2020"},
     ),
+    # h=15 同口径摸底（2026-11-15，用户问「30 不行，15 呢」）：h=10 因果 63.32%@19.9 单/天
+    # 已定案，h=30 只有 58% 左右，赔率 0.853 也救不回来。h=15 是两者中点，历史只有
+    # kline_long 的前视 top-K 数字（57.21%@0.838），从未跑过因果固定阈值。
+    # 变量只换 HORIZON，其余与 h10sig 完全一致（WIN_DAYS=1460/es0.05/thr0.10/TPD_LIST 同一套），
+    # 这样 tpd 相同 → 单/天相同（阈值分母都是 1440 个 1m 位置），胜率可直接和 h=10 的
+    # 63.32%@19.9 单/天 对撞，回答「同胜率同单量」的赔率之争。
+    # 预登记判据（先算再跑，禁止事后挑点）：
+    #   打平 h=10 需 0.838p-(1-p) = 0.1575 → p ≥ 62.97%；仅保正 EV 需 p > 54.42%。
+    #   ≥60% 视为「多一条独立曲线」，<58% 直接放弃 h=15（不值得占一个账号）。
+    # stride=15 抽样（与全量等价，§35），placebo 一档做换 horizon 的泄漏准入（§35.3）。
+    "h15sig": dict(
+        slug="byh850515/btcusdt-h15-causal-signal",
+        title="BTCUSDT H15 Causal Signal",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "15", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "STRIDE": "15",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PLACEBO": "1", "PLACEBO_SEEDS": "2",
+             "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
+    ),
     # bar 尺度隔离（2026-11-15）：外部 notebook h=10 报 58.3%，用的是 5m bar；我们全部
     # 历史实验都是 1m bar（h=10 = 预测 10 步、标签重叠 10 根）。同一份 K 线数据只换
     # bar 尺度（1/5/10m），阈值纪律不变，看 4.6pp 的差距有多少来自这一条。

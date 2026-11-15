@@ -39,6 +39,9 @@ env
 ------------------------------------------
   HORIZON=30 WIN_DAYS=2400 STRIDE=30 TPD_LIST=1,2,4,8 PRIMARY_TPD=4
   PLACEBO=1 PAYOUTS=0.853,0.85
+
+  HORIZON=15 STRIDE=15（其余与 h=10 基线完全一致，tpd 相同 → 单/天相同，可与
+  63.32%@19.9 单/天 直接对撞）PAYOUTS=0.838,0.853 PLACEBO=1
 """
 from __future__ import annotations
 
