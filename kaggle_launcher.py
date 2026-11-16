@@ -801,6 +801,21 @@ PROJECTS = {
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
              "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
     ),
+    # 超参随机搜索：选参段 2026-01~06（只优化「14~22 单/天」区间的 EV），
+    # 报告段 2026-07~10 与 2025 全年完全不参与选参。30 trials、6 维随机采样。
+    "aucs10": dict(
+        slug="byh850515/btcusdt-h10-auc-search",
+        title="BTCUSDT H10 AUC Search",
+        entry="morph.auc_search",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "90", "PAY": "0.80",
+             "N_TRIALS": "30", "SEARCH_SEEDS": "42,43", "REPORT_SEEDS": "42,43,44",
+             "SEARCH_RANGE": "2026-01,2026-06",
+             "REPORT_RANGE_1": "2026-07,2026-10", "REPORT_RANGE_2": "2025-01,2025-12",
+             "TPD_GRID": "12,15,18,20", "TPD_LO": "14", "TPD_HI": "22",
+             "BARS_PER_DAY": "1440", "KLINE_FROM": "2020"},
+    ),
     # 超参验证：把 auc_probe 选出的强正则化档位套回 mem_replay 的**实盘口径**
     # （逐月阈值 + 5 seeds），与已有 control 日志直接对照（配置其余部分完全相同）。
     "reg10": dict(
