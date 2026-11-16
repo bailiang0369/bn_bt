@@ -108,6 +108,13 @@ LGB_PRESETS = {
 }
 LGB_REG = os.environ.get("LGB_REG", "base").strip().lower()
 
+# 量能派生特征开关（2026-11-16 vp_probe 意外发现）
+# kl.build 里 `pick(cols, ("volume","um_volume","spot_volume"))` 在原始 K 线上找不到
+# volume 列 → 跳过 lg_volz/volratio/volprice/taker*共 7 列，基线一直是 49 列。
+# 给 raw 补一列 volume 后变 56 列，在 reg2 基线下 AUC 0.5324→0.5333（+0.0009）。
+# 这里做严格对照：配置完全相同，只切这一列。
+WITH_VOL = os.environ.get("VOL", "0") == "1"
+
 
 def log(msg: str) -> None:
     print(f"[{time.time() - T:7.1f}s] {msg}", flush=True)
@@ -339,6 +346,10 @@ def thr_report(alt: dict, pay: float, nmon: int) -> None:
 
 def main() -> None:
     raw = kl.load_raw()
+    if WITH_VOL and "volume" not in raw.columns:
+        raw = raw.with_columns(
+            (pl.col("um_buy_vol").cast(pl.Float64)
+             + pl.col("um_sell_vol").cast(pl.Float64)).alias("volume"))
     df, feats = kl.build(raw)
     df, feats = add_flow(df, feats)
     df = add_target(df, HORIZON).filter(

@@ -1619,6 +1619,24 @@ PROJECTS = {
     ),
 }
 
+# 量能 7 列对照（2026-11-16）：与 oos25h10r / reg10 配置完全相同，只切 VOL=1。
+# 若有效，说明现役基线一直漏掉了 kl.build 里被 pick() 跳过的 7 个量能特征。
+for _vtag, _a, _b, _slug in (("25", "2025-01", "2025-12", "btcusdt-h10-vol25-reg2"),
+                             ("26", "2026-01", "2026-10", "btcusdt-h10-vol26-reg2")):
+    PROJECTS[f"vol{_vtag}h10"] = dict(
+        slug=f"byh850515/{_slug}",
+        title=f"BTCUSDT H10 Vol{_vtag} Reg2",
+        entry="morph.mem_replay",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "90", "MEM_MODE": "off",
+             "LGB_REG": "reg2", "VOL": "1",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "STRIDE": "1",
+             "START_MONTH": _a, "END_MONTH": _b,
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PAYOUTS": "0.80,0.828", "KLINE_FROM": "2020"},
+    )
+
 # 超参样本外确认（2026-11-16）：reg2 是在 2026-01~10 上选出来的，必须换一段数据复核。
 # 2025 全年 base vs reg2 各跑一遍，配置除超参外完全相同。
 for _h, _pay in ((5, "0.818,0.838"), (10, "0.80,0.828"), (15, "0.838,0.853")):
