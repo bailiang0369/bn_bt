@@ -887,6 +887,9 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10", "LGB_REG": "reg2",
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
     ),
+    # h5sigR / h15sigR 目前**未运行**：H10（唯一有完整 OOS 证据的周期）在长窗上
+    # tpd=8 已判负（62.33% vs base 63.32%，月 min −3.29pp，见记录 §11），按预登记判据
+    # 不再外推到 H5/H15。配置保留，若将来训练窗长/样本量变化可再测。
     "h5sigR": dict(
         slug="byh850515/btcusdt-h5-causal-signal-reg2",
         title="BTCUSDT H5 Causal Signal Reg2",
