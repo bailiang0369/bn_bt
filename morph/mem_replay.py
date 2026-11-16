@@ -85,6 +85,17 @@ HIST_MIN_BUCKET = int(os.environ.get("HIST_MIN_BUCKET", "40"))
 _rp = os.environ.get("REPORT_PAY", "").strip()
 REPORT_PAY = float(_rp) if _rp else PAYOUTS[0]      # 诊断用的主赔率，默认取 PAYOUTS[0]
 
+# 阈值稳健化（2026-11-16）：同一次训练里并行对比多种「阈值估计」方式，完全配对。
+# 病根：thr 由 test 前 THR_FRAC 段（90d×10%≈9 天）估 99.4% 分位，样本太少 → 阈值月度
+# 抖动 8 倍、单量 1.5~51 单/天。这里测四种估计方式：
+#   raw  = 现状（前 9 天段的分位）
+#   ewma = 与上月阈值指数平滑（THR_ALPHA 为当月权重）
+#   hist = 过去 N 个月 test 全 bar 的分位（样本扩大到 K 个月）
+#   mix  = raw 与 hist 的算术平均
+THR_MODES = [x.strip() for x in os.environ.get("THR_MODES", "").split(",") if x.strip()]
+THR_ALPHA = float(os.environ.get("THR_ALPHA", "0.5"))
+THR_HIST_MIN = int(os.environ.get("THR_HIST_MIN", "2"))     # hist 模式至少积累几个月
+
 
 def log(msg: str) -> None:
     print(f"[{time.time() - T:7.1f}s] {msg}", flush=True)
@@ -271,6 +282,40 @@ def report_diag(monthly, hist, pay: float) -> None:
               + "".join(f"{row['thrs'].get(t, float('nan')):>10.4f}" for t in ths))
 
 
+def thr_report(alt: dict, pay: float) -> None:
+    """E) 阈值估计方案对比。同一模型、同一分数，只换阈值的估计来源。"""
+    if not alt:
+        return
+    be = breakeven(pay)
+    print(f"\n=== E. 阈值方案对比（同一模型，仅换阈值估计来源）| BE={be * 100:.1f}% ===")
+    print(f"{'tpd':>6}{'方案':>7}{'单/天':>8}{'n':>7}{'胜率':>9}{'EV':>9}"
+          f"{'月std':>9}{'单量CV':>8}{'单量max/min':>12}")
+    for tpd in TPD_LIST:
+        for mode in alt:
+            a = alt[mode].get(tpd)
+            if not a:
+                continue
+            w = np.concatenate(a["w"])
+            n = np.array(a["n"], float)
+            nds = np.array(a["nd"], float)
+            wr = float(w.mean())
+            mw = np.array([float(x.mean()) for x in a["w"]])
+            mstd = float(mw.std()) * 100
+            cv = float(n.std(ddof=1) / n.mean()) if len(n) > 1 else float("nan")
+            print(f"{tpd:>6.1f}{mode:>7}{n.sum() / nds.sum():>8.1f}{int(n.sum()):>7d}"
+                  f"{wr * 100:>8.2f}%{pay * wr - (1 - wr):>+9.3f}"
+                  f"{mstd:>7.2f}pp{cv:>8.2f}{f'{n.max():.0f}/{n.min():.0f}':>12}")
+    modes = [m for m in alt if PRIMARY_TPD in alt[m]]
+    if modes:
+        mi_all = [i for m in modes for i in alt[m][PRIMARY_TPD]["mi"]]
+        nmon = max(mi_all) + 1
+        print(f"\n[tpd={PRIMARY_TPD:g}] 逐月单量（看抖动是否被压平）：")
+        print(f"{'方案':>7}" + "".join(f"{'m' + str(i + 1):>8}" for i in range(nmon)))
+        for m in modes:
+            d = dict(zip(alt[m][PRIMARY_TPD]["mi"], alt[m][PRIMARY_TPD]["n"]))
+            print(f"{m:>7}" + "".join(f"{d.get(i, 0):>8d}" for i in range(nmon)))
+
+
 def main() -> None:
     raw = kl.load_raw()
     df, feats = kl.build(raw)
@@ -296,6 +341,10 @@ def main() -> None:
     monthly: list[dict] = []
     # hist[tpd] = [(月索引, 命中样本档号, 命中样本是否猜对 0/1), ...]
     hist: dict[float, list[tuple[int, np.ndarray, np.ndarray]]] = {t: [] for t in TPD_LIST}
+    # 阈值方案对比（THR_MODES 非空时启用）
+    alt: dict[str, dict[float, dict]] = {}
+    thr_prev: dict[float, float] = {}
+    thr_hist_bars: list[np.ndarray] = []
 
     for mj, m in enumerate(months):
         m_start = int(dt.datetime.strptime(m + "-01", "%Y-%m-%d")
@@ -349,6 +398,10 @@ def main() -> None:
                 f"thr={len(i_th):,} test={len(i_te):,}({nd}天) iter={int(np.mean(its))} "
                 f"AUC={auc:.4f}")
 
+        # 历史分数池（只用 m'<m，避免前视），供 hist/mix 阈值方案使用
+        hist_pool = (np.concatenate(thr_hist_bars)
+                     if THR_MODES and len(thr_hist_bars) >= THR_HIST_MIN else None)
+
         for tpd in TPD_LIST:
             thr = float(np.quantile(np.abs(p_th - .5), 1 - tpd / BARS_PER_DAY))
             hit = np.abs(s) >= thr
@@ -365,6 +418,31 @@ def main() -> None:
                 # 存「是否猜对」而非标签本身，report 里直接取均值即胜率
                 hist[tpd].append((mi, grade(np.abs(s[hit]), HIST_BINS),
                                   ((s[hit] > 0).astype(int) == y_all[i_te][hit]).astype(np.int8)))
+            for mode in THR_MODES:
+                if mode == "raw":
+                    t2 = thr
+                elif mode == "ewma":
+                    pv = thr_prev.get(tpd)
+                    t2 = thr if pv is None else THR_ALPHA * thr + (1 - THR_ALPHA) * pv
+                    thr_prev[tpd] = t2
+                elif mode in ("hist", "mix"):
+                    th = (float(np.quantile(hist_pool, 1 - tpd / BARS_PER_DAY))
+                          if hist_pool is not None else thr)
+                    t2 = th if mode == "hist" else 0.5 * (thr + th)
+                else:
+                    continue
+                h2 = np.abs(s) >= t2
+                if h2.sum() < 30:
+                    continue
+                a = alt.setdefault(mode, {}).setdefault(
+                    tpd, dict(w=[], n=[], nd=[], mi=[], thr=[]))
+                a["w"].append((s[h2] > 0).astype(int) == y_all[i_te][h2])
+                a["n"].append(int(h2.sum()))
+                a["nd"].append(nd)
+                a["mi"].append(mi)
+                a["thr"].append(t2)
+        if THR_MODES:
+            thr_hist_bars.append(np.abs(s).astype(np.float32))
             if tpd == PRIMARY_TPD:
                 line += f" | 阈值={thr:.4f} {nb / nd:.1f}单/天 胜率={w.mean() * 100:.2f}%"
                 # 入库：本月「被选中且预测正确」的样本，按月限量（w 是 hit 子集，需回映射）
@@ -405,6 +483,8 @@ def main() -> None:
     print(f"逐月入场记忆条数：{mem_sizes}")
     if COLLECT_HIST:
         report_diag(monthly, hist, REPORT_PAY)
+    if THR_MODES:
+        thr_report(alt, REPORT_PAY)
     log("DONE")
 
 
