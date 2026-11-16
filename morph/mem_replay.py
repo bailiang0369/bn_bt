@@ -71,6 +71,19 @@ BARS_PER_DAY = int(os.environ.get("BARS_PER_DAY", "1440"))
 PAYOUTS = [float(x) for x in os.environ.get("PAYOUTS", "0.80,0.828").split(",") if x.strip()]
 T = time.time()
 
+# 记忆的用途（2026-11-16 新增）：
+#   train  = 历史预测进训练集（原有行为，即 mem90 实验）
+#   export = 历史预测**不进训练集**，只按月收集，输出「信号强度分档 → 实际胜率」
+#            与滚动因果否决评估（回答：历史预测有没有可用的排序信息）
+#   off    = 完全不收集
+MEM_MODE = os.environ.get("MEM_MODE", "train").strip().lower()
+USE_MEM_TRAIN = MEM_MODE == "train"
+COLLECT_HIST = MEM_MODE in ("train", "export")
+HIST_BINS = int(os.environ.get("HIST_BINS", "5"))          # 命中样本按信号强度分几档
+HIST_MIN = int(os.environ.get("HIST_MIN", "250"))          # 历史样本够多少条才启用否决
+HIST_MIN_BUCKET = int(os.environ.get("HIST_MIN_BUCKET", "40"))
+REPORT_PAY = float(os.environ.get("REPORT_PAY", "0") or PAYOUTS[0])
+
 
 def log(msg: str) -> None:
     print(f"[{time.time() - T:7.1f}s] {msg}", flush=True)
@@ -122,6 +135,143 @@ def pick_memory(pool: list[tuple[int, int, float]], lo_idx: int,
     return np.asarray(out_idx, np.int64), np.asarray(out_sc, np.float64)
 
 
+def breakeven(pay: float) -> float:
+    """该赔率下的盈亏平衡胜率。"""
+    return 1.0 / (1.0 + pay)
+
+
+def grade(s_abs: np.ndarray, nb: int) -> np.ndarray:
+    """把当月命中样本按 |p-0.5| 内部排序切成 nb 档（0=最弱），返回档号。
+
+    档号是「本月信号里相对第几强」，跨月语义可比，不受分数尺度漂移影响。
+    注意：用当月命中集合的整体分布定档，属于事后分位；实盘需用滚动分位近似。
+    """
+    n = len(s_abs)
+    if n == 0:
+        return np.empty(0, np.int8)
+    order = np.argsort(s_abs, kind="stable")
+    g = np.empty(n, np.int8)
+    g[order] = np.minimum((np.arange(n) * nb) // n, nb - 1)
+    return g
+
+
+def report_diag(monthly, hist, pay: float) -> None:
+    """A) 事后分档胜率（诊断排序能力）B) 滚动因果否决 C) 逐月明细 D) 阈值漂移。"""
+    if not monthly:
+        print("\n[!] export 模式无可用月份")
+        return
+    be = breakeven(pay)
+    nb = HIST_BINS
+
+    # ---------- A. 全样本分档（含未来信息，仅用于判断有没有排序信息）----------
+    print(f"\n=== A. 分档胜率（命中样本按信号强度切 {nb} 档，0=最弱）| BE={be * 100:.1f}% ===")
+    print(f"{'tpd':>6}{'n':>8}" + "".join(f"{'档' + str(i):>9}" for i in range(nb))
+          + f"{'单调':>7}{'首尾差':>8}{'最强档EV':>10}")
+    a_store: dict[float, tuple] = {}
+    for tpd in TPD_LIST:
+        if tpd not in hist or not hist[tpd]:
+            continue
+        g = np.concatenate([h[1] for h in hist[tpd]])
+        y = np.concatenate([h[2] for h in hist[tpd]])
+        wrs = []
+        for i in range(nb):
+            m = g == i
+            wrs.append(float(y[m].mean()) if m.sum() else float("nan"))
+        a_store[tpd] = (wrs, y, g)
+        mono = all(wrs[i] <= wrs[i + 1] + 1e-9 for i in range(nb - 1))
+        spread = wrs[-1] - wrs[0]
+        top_ev = pay * wrs[-1] - (1 - wrs[-1])
+        print(f"{tpd:>6.1f}{len(y):>8d}"
+              + "".join(f"{w * 100:>8.2f}%" if w == w else f"{'-':>9}" for w in wrs)
+              + f"{'是' if mono else '否':>7}{spread * 100:>+7.2f}pp{top_ev:>+10.3f}")
+
+    # ---------- B. 滚动因果否决（历史各档胜率 → 否决本月同档）----------
+    print(f"\n=== B. 滚动因果否决（用 m'<m 的各档胜率定坏档，否决本月同档）===")
+    print(f"{'tpd':>6}{'月数':>6}{'未决单/天':>11}{'未决胜率':>11}{'未决EV':>9}"
+          f"{'否决后单/天':>13}{'否决后胜率':>13}{'否决后EV':>10}{'删单比例':>10}{'坏档':>6}")
+    for tpd in TPD_LIST:
+        if tpd not in hist or not hist[tpd]:
+            continue
+        b_y: list[np.ndarray] = []
+        b_n = 0
+        k_y: list[np.ndarray] = []
+        k_n = 0
+        nd_sum = 0
+        nmon = 0
+        bad_rec: list[str] = []
+        for h in hist[tpd]:
+            mi = h[0]
+            past = [p for p in hist[tpd] if p[0] < mi]
+            if not past:
+                continue
+            pg = np.concatenate([p[1] for p in past])
+            py = np.concatenate([p[2] for p in past])
+            if len(py) < HIST_MIN:
+                continue
+            bad = np.zeros(nb, bool)
+            for i in range(nb):
+                m = pg == i
+                if m.sum() >= HIST_MIN_BUCKET:
+                    bad[i] = py[m].mean() < be
+            g = h[1]
+            y = h[2]
+            keep = ~bad[g]
+            row = monthly[mi]
+            nd = row["nd"]
+            nmon += 1
+            nd_sum += nd
+            b_y.append(y)
+            b_n += len(y)
+            if keep.any():
+                k_y.append(y[keep])
+                k_n += int(keep.sum())
+            bad_rec.append("".join(str(i) for i in np.where(bad)[0]) or "-")
+        if nmon == 0 or not b_y:
+            print(f"{tpd:>6.1f}{nmon:>6d}{'（历史不足，无法评估）':>30}")
+            continue
+        by = np.concatenate(b_y)
+        bw = float(by.mean())
+        kw = float(np.concatenate(k_y).mean()) if k_y else float("nan")
+        print(f"{tpd:>6.1f}{nmon:>6d}{b_n / nd_sum:>11.1f}{bw * 100:>10.2f}%"
+              f"{pay * bw - (1 - bw):>+9.3f}{k_n / nd_sum:>13.1f}{kw * 100:>12.2f}%"
+              f"{pay * kw - (1 - kw):>+10.3f}{(1 - k_n / b_n) * 100:>9.1f}%"
+              f"{','.join(sorted(set(bad_rec))):>6}")
+
+    # ---------- C. 主操作点逐月明细 ----------
+    if PRIMARY_TPD in hist and hist[PRIMARY_TPD]:
+        print(f"\n=== C. tpd={PRIMARY_TPD:g} 逐月分档胜率（各档样本数相等）===")
+        print(f"{'月':>7}" + "".join(f"{'档' + str(i):>9}" for i in range(nb))
+              + f"{'本月历史坏档':>13}{'删单%':>7}")
+        for h in hist[PRIMARY_TPD]:
+            mi, g, y = h[0], h[1], h[2]
+            past = [p for p in hist[PRIMARY_TPD] if p[0] < mi]
+            if past and len(np.concatenate([p[2] for p in past])) >= HIST_MIN:
+                pg = np.concatenate([p[1] for p in past])
+                py = np.concatenate([p[2] for p in past])
+                bad = np.zeros(nb, bool)
+                for i in range(nb):
+                    m = pg == i
+                    if m.sum() >= HIST_MIN_BUCKET:
+                        bad[i] = py[m].mean() < be
+                tag = "".join(str(i) for i in np.where(bad)[0]) or "-"
+                cut = float(bad[g].mean()) * 100
+            else:
+                tag, cut = "（历史不足）", float("nan")
+            cells = ""
+            for i in range(nb):
+                m = g == i
+                cells += f"{y[m].mean() * 100:>8.2f}%" if m.sum() else f"{'-':>9}"
+            print(f"{monthly[mi]['ym']:>7}{cells}{tag:>13}{cut:>7.1f}")
+
+    # ---------- D. 阈值漂移 ----------
+    print(f"\n=== D. 阈值/单量漂移（阈值由 test 前 {THR_FRAC:.0%} 段估分位）===")
+    ths = sorted(monthly[0]["thrs"]) if monthly else []
+    print(f"{'月':>7}{'test天':>7}" + "".join(f"{'thr@' + format(t, 'g'):>10}" for t in ths))
+    for row in monthly:
+        print(f"{row['ym']:>7}{row['nd']:>7d}"
+              + "".join(f"{row['thrs'].get(t, float('nan')):>10.4f}" for t in ths))
+
+
 def main() -> None:
     raw = kl.load_raw()
     df, feats = kl.build(raw)
@@ -135,13 +285,18 @@ def main() -> None:
     ct = df["close_time"].cast(pl.Int64).to_numpy()
     ym = df["ym"].to_numpy()
     log(f"特征 {len(feats)} 列 | 可用 {df.height:,} 行 | H={HORIZON} | 近期窗 {WIN_DAYS}d | "
-        f"MEM_N={MEM_N} MEM_W={MEM_W:g} PER_MONTH={MEM_PER_MONTH} | stride={STRIDE}")
+        f"MEM_MODE={MEM_MODE} MEM_N={MEM_N} MEM_W={MEM_W:g} PER_MONTH={MEM_PER_MONTH} | "
+        f"stride={STRIDE}")
 
     months = [m for m in sorted(set(ym.tolist())) if START_MONTH <= m <= END_MONTH]
     per: dict[float, dict[str, list]] = {t: dict(s=[], y=[], mon=[]) for t in TPD_LIST}
     rows = []
     pool: list[tuple[int, int, float]] = []
     mem_sizes: list[int] = []
+    # export 诊断用：monthly[key] = 该月 test 的分数/标签/各 tpd 阈值
+    monthly: list[dict] = []
+    # hist[tpd] = [(月索引, 命中样本档号, 命中样本标签), ...]
+    hist: dict[float, list[tuple[int, np.ndarray, np.ndarray]]] = {t: [] for t in TPD_LIST}
 
     for mj, m in enumerate(months):
         m_start = int(dt.datetime.strptime(m + "-01", "%Y-%m-%d")
@@ -161,7 +316,8 @@ def main() -> None:
             seg[0], seg[1] = seg[0][::STRIDE], seg[1][::STRIDE]
         i_tr_s, i_es, i_th = seg
 
-        i_mem, _ = pick_memory(pool, int(i_tr[0]), MEM_N)      # 只取窗外
+        i_mem, _ = (pick_memory(pool, int(i_tr[0]), MEM_N) if USE_MEM_TRAIN
+                    else (np.empty(0, np.int64), np.empty(0, np.float64)))
         n_tr = len(i_tr_s)
         if len(i_mem):
             idx_tr = np.concatenate([i_tr_s, i_mem])
@@ -188,6 +344,8 @@ def main() -> None:
         days = (ct[i_te] // 86_400_000).astype(np.int64)
         nd = len(np.unique(days))
         s = p_te - .5
+        mi = len(monthly)
+        monthly.append(dict(ym=m, nd=nd, thrs={}))
         line = (f"[{m}] recent={n_tr:,}+mem={len(i_mem):,}(w{MEM_W:g}) es={len(i_es):,} "
                 f"thr={len(i_th):,} test={len(i_te):,}({nd}天) iter={int(np.mean(its))} "
                 f"AUC={auc:.4f}")
@@ -203,6 +361,10 @@ def main() -> None:
             per[tpd]["s"].append(s[hit])
             per[tpd]["y"].append(y_all[i_te][hit])
             per[tpd]["mon"].append(float(w.mean()))
+            monthly[mi]["thrs"][tpd] = thr
+            if COLLECT_HIST:
+                hist[tpd].append((mi, grade(np.abs(s[hit]), HIST_BINS),
+                                  y_all[i_te][hit].astype(np.int8)))
             if tpd == PRIMARY_TPD:
                 line += f" | 阈值={thr:.4f} {nb / nd:.1f}单/天 胜率={w.mean() * 100:.2f}%"
                 # 入库：本月「被选中且预测正确」的样本，按月限量（w 是 hit 子集，需回映射）
@@ -241,6 +403,8 @@ def main() -> None:
     print("  " + "  ".join(f"{r['ym'][2:]}:{v * 100:.1f}%"
                           for r, v in zip(rows, p["mon"])))
     print(f"逐月入场记忆条数：{mem_sizes}")
+    if COLLECT_HIST:
+        report_diag(monthly, hist, REPORT_PAY)
     log("DONE")
 
 
