@@ -282,13 +282,16 @@ def report_diag(monthly, hist, pay: float) -> None:
               + "".join(f"{row['thrs'].get(t, float('nan')):>10.4f}" for t in ths))
 
 
-def thr_report(alt: dict, pay: float) -> None:
-    """E) 阈值估计方案对比。同一模型、同一分数，只换阈值的估计来源。"""
+def thr_report(alt: dict, pay: float, nmon: int) -> None:
+    """E) 阈值估计方案对比。同一模型、同一分数，只换阈值的估计来源。
+
+    「月数」列 = 有成交的月 / 总月。覆盖率不足的方案其胜率/EV 不可信（选择偏差）。
+    """
     if not alt:
         return
     be = breakeven(pay)
     print(f"\n=== E. 阈值方案对比（同一模型，仅换阈值估计来源）| BE={be * 100:.1f}% ===")
-    print(f"{'tpd':>6}{'方案':>7}{'单/天':>8}{'n':>7}{'胜率':>9}{'EV':>9}"
+    print(f"{'tpd':>6}{'方案':>7}{'月数':>7}{'单/天':>8}{'n':>7}{'胜率':>9}{'EV':>9}"
           f"{'月std':>9}{'单量CV':>8}{'单量max/min':>12}")
     for tpd in TPD_LIST:
         for mode in alt:
@@ -302,9 +305,14 @@ def thr_report(alt: dict, pay: float) -> None:
             mw = np.array([float(x.mean()) for x in a["w"]])
             mstd = float(mw.std()) * 100
             cv = float(n.std(ddof=1) / n.mean()) if len(n) > 1 else float("nan")
-            print(f"{tpd:>6.1f}{mode:>7}{n.sum() / nds.sum():>8.1f}{int(n.sum()):>7d}"
-                  f"{wr * 100:>8.2f}%{pay * wr - (1 - wr):>+9.3f}"
-                  f"{mstd:>7.2f}pp{cv:>8.2f}{f'{n.max():.0f}/{n.min():.0f}':>12}")
+            partial = len(a["mi"]) < nmon
+            cov = f"{len(a['mi'])}/{nmon}"
+            ratio = f"{n.max():.0f}/{n.min():.0f}"
+            print(f"{tpd:>6.1f}{mode:>7}{cov:>7}"
+                  f"{n.sum() / nds.sum():>8.1f}{int(n.sum()):>7d}"
+                  f"{wr * 100:>8.2f}{'*' if partial else '%':>1}"
+                  f"{pay * wr - (1 - wr):>+9.3f}"
+                  f"{mstd:>7.2f}pp{cv:>8.2f}{ratio:>12}")
     modes = [m for m in alt if PRIMARY_TPD in alt[m]]
     if modes:
         mi_all = [i for m in modes for i in alt[m][PRIMARY_TPD]["mi"]]
@@ -381,11 +389,14 @@ def main() -> None:
         yes = y_all[i_es]
         p_th = np.zeros(len(i_th))
         p_te = np.zeros(len(i_te))
+        p_es = np.zeros(len(i_es))
         its = []
         for seed in SEEDS:
             mdl = fit_w(Xtr, y_tr, feats, Xes, yes, w_tr, seed)
             p_th += mdl.predict(Xth, num_iteration=mdl.best_iteration) / len(SEEDS)
             p_te += mdl.predict(Xte, num_iteration=mdl.best_iteration) / len(SEEDS)
+            if "wide" in THR_MODES:
+                p_es += mdl.predict(Xes, num_iteration=mdl.best_iteration) / len(SEEDS)
             its.append(mdl.best_iteration or ROUNDS)
 
         auc = float(roc_auc_score(y_all[i_te], p_te))
@@ -401,6 +412,9 @@ def main() -> None:
         # 历史分数池（只用 m'<m，避免前视），供 hist/mix 阈值方案使用
         hist_pool = (np.concatenate(thr_hist_bars)
                      if THR_MODES and len(thr_hist_bars) >= THR_HIST_MIN else None)
+        # wide：i_es ∪ i_th 同尺度扩窗（i_es 是早停段，模型对其略乐观，但仅用于估分位）
+        wide_pool = (np.concatenate([np.abs(p_th - .5), np.abs(p_es - .5)])
+                     if "wide" in THR_MODES else None)
 
         for tpd in TPD_LIST:
             thr = float(np.quantile(np.abs(p_th - .5), 1 - tpd / BARS_PER_DAY))
@@ -429,6 +443,10 @@ def main() -> None:
                     th = (float(np.quantile(hist_pool, 1 - tpd / BARS_PER_DAY))
                           if hist_pool is not None else thr)
                     t2 = th if mode == "hist" else 0.5 * (thr + th)
+                elif mode == "wide":
+                    t2 = float(np.quantile(wide_pool, 1 - tpd / BARS_PER_DAY))
+                elif mode == "widemi":      # wide 与 raw 的折中，降低对早停段的依赖
+                    t2 = 0.5 * (thr + float(np.quantile(wide_pool, 1 - tpd / BARS_PER_DAY)))
                 else:
                     continue
                 h2 = np.abs(s) >= t2
@@ -484,7 +502,7 @@ def main() -> None:
     if COLLECT_HIST:
         report_diag(monthly, hist, REPORT_PAY)
     if THR_MODES:
-        thr_report(alt, REPORT_PAY)
+        thr_report(alt, REPORT_PAY, len(monthly))
     log("DONE")
 
 
