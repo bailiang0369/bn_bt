@@ -34,7 +34,7 @@ from orderbook.fusion_test import (  # noqa: E402
 
 OB_REG = dict(num_leaves=31, min_child_samples=500, feature_fraction=0.6, lambda_l2=5.0)
 
-# 参照值（来自 融合实验记录.md §16，off=0，同一口径 global topK K=15×天数）
+# 参照值（来自 实验详录.md 篇三 §16，off=0，同一口径 global topK K=15×天数）
 BTC_REF = {
     "盘口腿": 0.6410,
     "融合 w=0.2": 0.6465,

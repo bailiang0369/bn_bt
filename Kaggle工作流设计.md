@@ -27,9 +27,9 @@ bn_bt/
 ├── tool/pl_exp.py             # 共享工具
 ├── morph/                     # 项目A：faiss 形态聚类（真实项目代码，非 kaggle 专用）
 │   ├── kaggle_entry.py        # 入口 main()
-│   ├── download_klines.py / make_dataset/ / 形态聚类经验.md / ...
+│   ├── download_klines.py / make_dataset/ / ...（形态经验见 实验详录.md 篇二）
 ├── orderbook/                 # 项目B：订单簿 LightGBM（真实项目代码）
-│   ├── train.py / extend_features.py / feature_spec.md / _cov.py
+│   ├── train.py / extend_features.py / feature_spec.md（指针）
 │   └── kaggle_ds/dataset-metadata.json   # 仅 orderbook 用的数据集元数据（非 kernel）
 ├── kaggle_bootstrap.py        # 【Kaggle 胶水】唯一被推上 Kaggle 的 code_file
 ├── kaggle_launcher.py         # 【Kaggle 胶水】本地编排器（不进 kernel）
@@ -180,9 +180,9 @@ $S='<slug>'; for($i=0;$i -lt 15;$i++){ $o=(kaggle kernels status $S);
 补充约定：
 - `gpu=True` **只作用于该项目自己的 kernel metadata**，不是全局开关，不会影响其它项目。
 - LightGBM 不会因为 kernel 开了 GPU 就自动走 GPU（仍用 CPU），给这类项目开 GPU 只是白占
-  Kaggle 免费额度，见 `测试评估踩坑与经验总结.md` §环境。
+  Kaggle 免费额度，见 `实验详录.md 篇一` §环境。
 - 这条是**算力策略，不是实验建议**：`orderbook/nn_tcn.py` 那次用的就是 Tesla T4，
-  但「订单簿 h=3 + TCN」已有明确负结论（`融合实验记录.md` §时序），不要因为"可以开 GPU"
+  但「订单簿 h=3 + TCN」已有明确负结论（`实验详录.md 篇三` §时序），不要因为"可以开 GPU"
   就重做该实验。
 - 除上述 NN/时序类别外，若想给别的项目开 GPU，仍需用户另行明确要求。
 

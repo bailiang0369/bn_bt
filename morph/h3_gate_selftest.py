@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """上 Kaggle 前的本地合成数据自检（不联网、不训练）。
 
-覆盖 `续接说明.md` §6 的坑：IO、类型、表达式、因果性、评估口径先用小样本验完。
+覆盖 `实验详录.md 篇七` §6 的坑：IO、类型、表达式、因果性、评估口径先用小样本验完。
     python -m morph.h3_gate_selftest
 """
 from __future__ import annotations

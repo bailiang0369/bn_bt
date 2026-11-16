@@ -583,7 +583,7 @@ PROJECTS = {
              "HORIZONS": "3,5,10,15", "TARGET_TPD": "15", "ROUNDS": "2000"},
     ),
     # h=3 专用宽表尝试（K线 + 订单簿 + 跨域），**独立于 twolegs 基线**，便于回退；
-    # 每次跑完把 EXP 行抄进 `h3宽表实验记录.md`。
+    # 每次跑完把 EXP 行抄进 `实验详录.md 篇四`。
     "h3wide": dict(
         slug="byh850515/btcusdt-h3-wide",
         title="BTCUSDT H3 Wide",
