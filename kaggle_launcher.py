@@ -872,6 +872,45 @@ PROJECTS = {
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
              "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
     ),
+    # reg2 接线到**生产入口**（2026-11-16）：上面的 reg10/5/15 走的是 mem_replay 的
+    # 90 天窗实验口径，而现役生产是 h10_signal + WIN_DAYS=1460。这三项只改超参档位，
+    # 其余（窗长/切分/阈值/seeds/主操作点 tpd=8）与现役 h10sig 逐字相同，用来确认
+    # 接线后回归能否在长窗上复现"同向改善"，而不是只在小窗实验里成立。
+    "h10sigR": dict(
+        slug="byh850515/btcusdt-h10-causal-signal-reg2",
+        title="BTCUSDT H10 Causal Signal Reg2",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10", "LGB_REG": "reg2",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "KLINE_FROM": "2020"},
+    ),
+    "h5sigR": dict(
+        slug="byh850515/btcusdt-h5-causal-signal-reg2",
+        title="BTCUSDT H5 Causal Signal Reg2",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "5", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10", "LGB_REG": "reg2",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PAYOUTS": "0.818,0.838", "KLINE_FROM": "2020"},
+    ),
+    "h15sigR": dict(
+        slug="byh850515/btcusdt-h15-causal-signal-reg2",
+        title="BTCUSDT H15 Causal Signal Reg2",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "15", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10", "LGB_REG": "reg2",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
+    ),
     # AUC 探针：Stage1 比 5 组超参（全仓库硬编码 num_leaves=63/mcs=100，从未搜过），
     # Stage2 比 base / +struct / +liq / +both（后两组写好但从未验证）。
     "auc10": dict(

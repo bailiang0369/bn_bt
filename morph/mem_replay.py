@@ -43,7 +43,7 @@ from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from morph import kline_long as kl  # noqa: E402
-from morph.h10_signal import add_flow, roll_worst  # noqa: E402
+from morph.h10_signal import LGB_PRESETS, add_flow, roll_worst  # noqa: E402
 from morph.two_legs import add_target, matrix  # noqa: E402
 
 try:
@@ -99,13 +99,7 @@ THR_HIST_MIN = int(os.environ.get("THR_HIST_MIN", "2"))     # hist 模式至少�
 # LightGBM 超参档位（2026-11-16 auc_probe 实测）：本仓库一直硬编码 num_leaves=63 /
 # min_child_samples=100，在 1.05M 行 × 49 列、AUC≈0.53 的极低信噪比下明显过拟合。
 # 强正则化实测 H10 AUC +0.0041（9/10 月改善）、H15 +0.0026（8/10）、H5 +0.0014（8/10）。
-LGB_PRESETS = {
-    "base": {},
-    "reg1": dict(num_leaves=31, min_child_samples=1000, feature_fraction=.7, lambda_l2=10),
-    "reg2": dict(num_leaves=15, min_child_samples=3000, feature_fraction=.5, lambda_l2=100),
-    "shallow": dict(learning_rate=.03, num_leaves=15, min_child_samples=500,
-                    feature_fraction=.6, lambda_l2=20, max_depth=4),
-}
+# 档位表已迁到 `h10_signal.py`（生产入口）作单一真源，这里只导入，避免两处漂移。
 LGB_REG = os.environ.get("LGB_REG", "base").strip().lower()
 
 # 量能派生特征开关（2026-11-16 vp_probe 意外发现）

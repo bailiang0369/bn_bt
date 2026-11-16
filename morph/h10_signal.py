@@ -34,6 +34,7 @@ env
   START_MONTH / END_MONTH / TPD_LIST / PRIMARY_TPD=8 / KLINE_FROM / PAYOUTS
   STRIDE=1（=HORIZON 抽样加速，正式数字保持 1）/ PLACEBO=0（=1 打乱标签查泄漏）
   PLACEBO_SEEDS=2 / BARS_PER_DAY=1440（阈值分位分母，与 1m bar 的机会数对齐）
+  LGB_REG=base|reg1|**reg2**|shallow（默认 base，见下方"超参档位"）
 
 换 horizon 用法（2026-11-15 起，h=30 摸底）
 ------------------------------------------
@@ -95,6 +96,23 @@ WITH_LIQ = os.environ.get("LIQ", "0") == "1"
 HOURFILT = os.environ.get("HOURFILT", "0") == "1"
 HOUR_BLOCK = int(os.environ.get("HOUR_BLOCK", "3"))     # 每块几小时（24 除以它要是整数）
 HOUR_MIN_WIN = float(os.environ.get("HOUR_MIN_WIN", "0.55"))  # 块胜率门槛
+# ---------------------------------------------------------------- 超参档位（2026-11-16）
+# 本仓库长期硬编码 num_leaves=63 / min_child_samples=100，在 H5/H10/H15 的
+# 「1.05M 行 × 49 列、AUC≈0.53」极低信噪比下明显过拟合。reg2 强正则化在
+# mem_replay 的实盘口径下 9/9 同向改善（H10 AUC 0.5324、2026 胜率 +3.7~5.9pp、
+# 2025 全年 EV 由负转正），因此接线到本生产入口；单一真源在此，mem_replay 也从这里导入。
+# 默认 base → 现役数字（tpd=8 63.32% @19.9 单/天）保持不变。
+LGB_PRESETS = {
+    "base": {},
+    "reg1": dict(num_leaves=31, min_child_samples=1000, feature_fraction=.7, lambda_l2=10),
+    "reg2": dict(num_leaves=15, min_child_samples=3000, feature_fraction=.5, lambda_l2=100),
+    "shallow": dict(learning_rate=.03, num_leaves=15, min_child_samples=500,
+                    feature_fraction=.6, lambda_l2=20, max_depth=4),
+}
+LGB_REG = os.environ.get("LGB_REG", "base").strip().lower()
+if LGB_REG not in LGB_PRESETS:
+    raise SystemExit(f"LGB_REG={LGB_REG} 不在 {sorted(LGB_PRESETS)}（拼错会静默跑成 base）")
+LGB_PARAMS = LGB_PRESETS[LGB_REG]
 T = time.time()
 
 
@@ -326,6 +344,7 @@ def main() -> None:
     months = [m for m in sorted(df["ym"].unique().to_list()) if START_MONTH <= m <= END_MONTH]
     log(f"walk-forward {len(months)} 窗口（{months[0]}~{months[-1]}）| H={HORIZON} | "
         f"滚动窗 {WIN_DAYS} 天 | es={ES_FRAC:.0%} thr={THR_FRAC:.0%} | seeds={len(SEEDS)}")
+    log(f"LightGBM 档位 LGB_REG={LGB_REG} {LGB_PARAMS or '（历史默认 63/100）'}")
     log(f"因果阈值：分位只在「目标月之前的 thr 段」算，test 月只用固定阈值 → 无前视")
 
     per_tpd: dict[float, dict[str, list]] = {
@@ -360,7 +379,7 @@ def main() -> None:
         pte = np.zeros(te.height)
         its = []
         for seed in SEEDS:
-            mdl = fit(Xtr, ytr, feats, Xes, yes, seed=seed)
+            mdl = fit(Xtr, ytr, feats, Xes, yes, seed=seed, params_override=LGB_PARAMS)
             its.append(int(mdl.best_iteration))
             pth += mdl.predict(Xth, num_iteration=mdl.best_iteration) / len(SEEDS)
             pte += mdl.predict(Xte, num_iteration=mdl.best_iteration) / len(SEEDS)
@@ -380,7 +399,7 @@ def main() -> None:
             pth_pl = np.zeros(th.height)
             pte_pl = np.zeros(te.height)
             for seed in SEEDS[:npl]:
-                mdl = fit(Xtr, ysh, feats, Xes, yesh, seed=seed)
+                mdl = fit(Xtr, ysh, feats, Xes, yesh, seed=seed, params_override=LGB_PARAMS)
                 pth_pl += mdl.predict(Xth, num_iteration=mdl.best_iteration) / npl
                 pte_pl += mdl.predict(Xte, num_iteration=mdl.best_iteration) / npl
             pl_auc = float(roc_auc_score(y, pte_pl))

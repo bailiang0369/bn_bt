@@ -89,13 +89,20 @@ def report(tag: str, score: np.ndarray, y: np.ndarray, days: np.ndarray) -> floa
 # ---------------------------------------------------------------- 训练
 def fit(Xtr: np.ndarray, ytr: np.ndarray, cols: list[str],
         Xva: np.ndarray | None = None, yva: np.ndarray | None = None,
-        seed: int | None = None) -> lgb.Booster:
-    """单模型训练；`seed` 显式传入时覆盖模块默认，用于多 seed 概率平均。"""
+        seed: int | None = None,
+        params_override: dict | None = None) -> lgb.Booster:
+    """单模型训练；`seed` 显式传入时覆盖模块默认，用于多 seed 概率平均。
+
+    `params_override`（2026-11-16）：把超参档位（如长周期用的 reg2 强正则化）接进
+    生产入口。**不传时行为与历史完全一致**，老调用方零影响。
+    """
     params = dict(objective="binary", metric="auc", boosting_type="gbdt",
                   learning_rate=0.05, num_leaves=63, feature_fraction=0.9,
                   bagging_fraction=0.9, bagging_freq=1, min_child_samples=100,
                   verbose=-1, seed=SEED if seed is None else seed,
                   num_threads=os.cpu_count() or 4)
+    if params_override:
+        params.update(params_override)
     ds_tr = lgb.Dataset(Xtr, ytr, feature_name=cols)
     valid, callbacks = [ds_tr], [lgb.log_evaluation(200)]
     if Xva is not None and len(yva):
