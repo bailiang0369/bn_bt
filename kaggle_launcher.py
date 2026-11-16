@@ -801,6 +801,21 @@ PROJECTS = {
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
              "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
     ),
+    # VP 量价分布在强正则化（reg2）基线下的重测：当年判「无效」时用的是
+    # num_leaves=63/mcs=100 的过拟合配置，且实测其实有 +0.0011。
+    "vp10": dict(
+        slug="byh850515/btcusdt-h10-vp-probe",
+        title="BTCUSDT H10 VP Probe",
+        entry="morph.vp_probe",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "90", "PAY": "0.80",
+             "SEEDS": "42,43,44", "ROUNDS": "2000",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "VP_WINS": "240,960,1440", "VP_ANCHOR": "10", "VP_TICK": "2.0",
+             "VP_SELFCHECK": "1", "KLINE_FROM": "2020"},
+    ),
     # 超参随机搜索：选参段 2026-01~06（只优化「14~22 单/天」区间的 EV），
     # 报告段 2026-07~10 与 2025 全年完全不参与选参。30 trials、6 维随机采样。
     "aucs10": dict(
