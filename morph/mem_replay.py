@@ -205,8 +205,9 @@ def main() -> None:
             per[tpd]["mon"].append(float(w.mean()))
             if tpd == PRIMARY_TPD:
                 line += f" | 阈值={thr:.4f} {nb / nd:.1f}单/天 胜率={w.mean() * 100:.2f}%"
-                # 入库：本月「被选中且预测正确」的样本，按月限量
-                take = np.where(hit & (w == 1))[0][:MEM_PER_MONTH]
+                # 入库：本月「被选中且预测正确」的样本，按月限量（w 是 hit 子集，需回映射）
+                sel = np.where(hit)[0]
+                take = sel[w == 1][:MEM_PER_MONTH]
                 pool.extend((int(i_te[j]), mj, float(p_te[j])) for j in take)
         rows.append(dict(ym=m, nd=nd, auc=auc))
         log(line)
