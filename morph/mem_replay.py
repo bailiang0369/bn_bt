@@ -96,6 +96,18 @@ THR_MODES = [x.strip() for x in os.environ.get("THR_MODES", "").split(",") if x.
 THR_ALPHA = float(os.environ.get("THR_ALPHA", "0.5"))
 THR_HIST_MIN = int(os.environ.get("THR_HIST_MIN", "2"))     # hist 模式至少积累几个月
 
+# LightGBM 超参档位（2026-11-16 auc_probe 实测）：本仓库一直硬编码 num_leaves=63 /
+# min_child_samples=100，在 1.05M 行 × 49 列、AUC≈0.53 的极低信噪比下明显过拟合。
+# 强正则化实测 H10 AUC +0.0041（9/10 月改善）、H15 +0.0026（8/10）、H5 +0.0014（8/10）。
+LGB_PRESETS = {
+    "base": {},
+    "reg1": dict(num_leaves=31, min_child_samples=1000, feature_fraction=.7, lambda_l2=10),
+    "reg2": dict(num_leaves=15, min_child_samples=3000, feature_fraction=.5, lambda_l2=100),
+    "shallow": dict(learning_rate=.03, num_leaves=15, min_child_samples=500,
+                    feature_fraction=.6, lambda_l2=20, max_depth=4),
+}
+LGB_REG = os.environ.get("LGB_REG", "base").strip().lower()
+
 
 def log(msg: str) -> None:
     print(f"[{time.time() - T:7.1f}s] {msg}", flush=True)
@@ -107,6 +119,7 @@ def fit_w(Xtr, ytr, cols, Xes, yes, wtr, seed):
                   learning_rate=0.05, num_leaves=63, feature_fraction=0.9,
                   bagging_fraction=0.9, bagging_freq=1, min_child_samples=100,
                   verbose=-1, seed=seed, num_threads=os.cpu_count() or 4)
+    params.update(LGB_PRESETS.get(LGB_REG, {}))
     ds = lgb.Dataset(Xtr, ytr, weight=wtr, feature_name=cols)
     va = lgb.Dataset(Xes, yes, reference=ds)
     return lgb.train(params, ds, num_boost_round=ROUNDS, valid_sets=[ds, va],

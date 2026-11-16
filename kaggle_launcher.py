@@ -801,6 +801,47 @@ PROJECTS = {
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
              "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
     ),
+    # 超参验证：把 auc_probe 选出的强正则化档位套回 mem_replay 的**实盘口径**
+    # （逐月阈值 + 5 seeds），与已有 control 日志直接对照（配置其余部分完全相同）。
+    "reg10": dict(
+        slug="byh850515/btcusdt-h10-lgb-reg2",
+        title="BTCUSDT H10 Lgb Reg2",
+        entry="morph.mem_replay",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "90", "MEM_MODE": "off",
+             "LGB_REG": "reg2",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "STRIDE": "1",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PAYOUTS": "0.80,0.828", "KLINE_FROM": "2020"},
+    ),
+    "reg5": dict(
+        slug="byh850515/btcusdt-h5-lgb-reg2",
+        title="BTCUSDT H5 Lgb Reg2",
+        entry="morph.mem_replay",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "5", "WIN_DAYS": "90", "MEM_MODE": "off",
+             "LGB_REG": "reg2",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "STRIDE": "1",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PAYOUTS": "0.818,0.838", "KLINE_FROM": "2020"},
+    ),
+    "reg15": dict(
+        slug="byh850515/btcusdt-h15-lgb-reg2",
+        title="BTCUSDT H15 Lgb Reg2",
+        entry="morph.mem_replay",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "15", "WIN_DAYS": "90", "MEM_MODE": "off",
+             "LGB_REG": "reg2",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "STRIDE": "1",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
+    ),
     # AUC 探针：Stage1 比 5 组超参（全仓库硬编码 num_leaves=63/mcs=100，从未搜过），
     # Stage2 比 base / +struct / +liq / +both（后两组写好但从未验证）。
     "auc10": dict(
