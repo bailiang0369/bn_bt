@@ -1589,6 +1589,24 @@ PROJECTS = {
     ),
 }
 
+# 超参样本外确认（2026-11-16）：reg2 是在 2026-01~10 上选出来的，必须换一段数据复核。
+# 2025 全年 base vs reg2 各跑一遍，配置除超参外完全相同。
+for _h, _pay in ((5, "0.818,0.838"), (10, "0.80,0.828"), (15, "0.838,0.853")):
+    for _tag, _reg in (("b", "base"), ("r", "reg2")):
+        PROJECTS[f"oos25h{_h}{_tag}"] = dict(
+            slug=f"byh850515/btcusdt-h{_h}-oos25-{_reg}",
+            title=f"BTCUSDT H{_h} OOS25 {_reg.capitalize()}",
+            entry="morph.mem_replay",
+            enable_internet=True,
+            dataset_sources=[],
+            env={"SYMBOL": "BTCUSDT", "HORIZON": str(_h), "WIN_DAYS": "90",
+                 "MEM_MODE": "off", "LGB_REG": _reg,
+                 "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "STRIDE": "1",
+                 "START_MONTH": "2025-01", "END_MONTH": "2025-12",
+                 "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+                 "PAYOUTS": _pay, "KLINE_FROM": "2020"},
+        )
+
 
 def stage(project, overrides=None):
     cfg = PROJECTS[project]
