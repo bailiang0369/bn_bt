@@ -801,6 +801,41 @@ PROJECTS = {
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
              "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
     ),
+    # AUC 探针：Stage1 比 5 组超参（全仓库硬编码 num_leaves=63/mcs=100，从未搜过），
+    # Stage2 比 base / +struct / +liq / +both（后两组写好但从未验证）。
+    "auc10": dict(
+        slug="byh850515/btcusdt-h10-auc-probe",
+        title="BTCUSDT H10 AUC Probe",
+        entry="morph.auc_probe",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "90",
+             "SEEDS": "42,43,44", "ROUNDS": "2000", "STAGE": "all",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "PRIMARY_TPD": "8", "BARS_PER_DAY": "1440", "KLINE_FROM": "2020"},
+    ),
+    "auc5": dict(
+        slug="byh850515/btcusdt-h5-auc-probe",
+        title="BTCUSDT H5 AUC Probe",
+        entry="morph.auc_probe",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "5", "WIN_DAYS": "90",
+             "SEEDS": "42,43,44", "ROUNDS": "2000", "STAGE": "all",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "PRIMARY_TPD": "8", "BARS_PER_DAY": "1440", "KLINE_FROM": "2020"},
+    ),
+    "auc15": dict(
+        slug="byh850515/btcusdt-h15-auc-probe",
+        title="BTCUSDT H15 AUC Probe",
+        entry="morph.auc_probe",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "15", "WIN_DAYS": "90",
+             "SEEDS": "42,43,44", "ROUNDS": "2000", "STAGE": "all",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "PRIMARY_TPD": "8", "BARS_PER_DAY": "1440", "KLINE_FROM": "2020"},
+    ),
     # 阈值稳健化：同一次训练并行对比 raw / ewma / hist / mix 四种阈值估计（完全配对）。
     # 病根是 thr 由 test 前 ~9 天估 99.4% 分位，抖动 8 倍、单量 1.5~51 单/天。
     "thr10": dict(
