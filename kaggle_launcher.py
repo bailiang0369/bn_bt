@@ -736,7 +736,7 @@ PROJECTS = {
     # 对照组为同窗无记忆；参照现役 1460d 基线 h=10 63.32% / h=5 59.74% / h=15 59.61%。
     # 判据：与同窗无记忆版比，tpd=8 胜率 +1pp 以上 **且** 月 min 不下降，才算有效。
     "mem10": dict(
-        slug="byh850515/btcusdt-h10-mem90",
+        slug="byh850515/btcusdt-h10-mem90-control",
         title="BTCUSDT H10 Mem90 Control",
         entry="morph.mem_replay",
         enable_internet=True,
@@ -748,7 +748,7 @@ PROJECTS = {
              "PAYOUTS": "0.80,0.828", "KLINE_FROM": "2020"},
     ),
     "mem10x": dict(
-        slug="byh850515/btcusdt-h10-mem90-w1",
+        slug="byh850515/btcusdt-h10-mem90-20k",
         title="BTCUSDT H10 Mem90 +20k",
         entry="morph.mem_replay",
         enable_internet=True,
@@ -761,7 +761,7 @@ PROJECTS = {
              "PAYOUTS": "0.80,0.828", "KLINE_FROM": "2020"},
     ),
     "mem5": dict(
-        slug="byh850515/btcusdt-h5-mem90",
+        slug="byh850515/btcusdt-h5-mem90-control",
         title="BTCUSDT H5 Mem90 Control",
         entry="morph.mem_replay",
         enable_internet=True,
@@ -773,7 +773,7 @@ PROJECTS = {
              "PAYOUTS": "0.818,0.838", "KLINE_FROM": "2020"},
     ),
     "mem5x": dict(
-        slug="byh850515/btcusdt-h5-mem90-w1",
+        slug="byh850515/btcusdt-h5-mem90-20k",
         title="BTCUSDT H5 Mem90 +20k",
         entry="morph.mem_replay",
         enable_internet=True,
@@ -786,7 +786,7 @@ PROJECTS = {
              "PAYOUTS": "0.818,0.838", "KLINE_FROM": "2020"},
     ),
     "mem15": dict(
-        slug="byh850515/btcusdt-h15-mem90",
+        slug="byh850515/btcusdt-h15-mem90-control",
         title="BTCUSDT H15 Mem90 Control",
         entry="morph.mem_replay",
         enable_internet=True,
@@ -798,7 +798,7 @@ PROJECTS = {
              "PAYOUTS": "0.838,0.853", "KLINE_FROM": "2020"},
     ),
     "mem15x": dict(
-        slug="byh850515/btcusdt-h15-mem90-w1",
+        slug="byh850515/btcusdt-h15-mem90-20k",
         title="BTCUSDT H15 Mem90 +20k",
         entry="morph.mem_replay",
         enable_internet=True,
