@@ -82,7 +82,8 @@ COLLECT_HIST = MEM_MODE in ("train", "export")
 HIST_BINS = int(os.environ.get("HIST_BINS", "5"))          # 命中样本按信号强度分几档
 HIST_MIN = int(os.environ.get("HIST_MIN", "250"))          # 历史样本够多少条才启用否决
 HIST_MIN_BUCKET = int(os.environ.get("HIST_MIN_BUCKET", "40"))
-REPORT_PAY = float(os.environ.get("REPORT_PAY", "0") or PAYOUTS[0])
+_rp = os.environ.get("REPORT_PAY", "").strip()
+REPORT_PAY = float(_rp) if _rp else PAYOUTS[0]      # 诊断用的主赔率，默认取 PAYOUTS[0]
 
 
 def log(msg: str) -> None:
@@ -167,21 +168,19 @@ def report_diag(monthly, hist, pay: float) -> None:
     print(f"\n=== A. 分档胜率（命中样本按信号强度切 {nb} 档，0=最弱）| BE={be * 100:.1f}% ===")
     print(f"{'tpd':>6}{'n':>8}" + "".join(f"{'档' + str(i):>9}" for i in range(nb))
           + f"{'单调':>7}{'首尾差':>8}{'最强档EV':>10}")
-    a_store: dict[float, tuple] = {}
     for tpd in TPD_LIST:
         if tpd not in hist or not hist[tpd]:
             continue
         g = np.concatenate([h[1] for h in hist[tpd]])
-        y = np.concatenate([h[2] for h in hist[tpd]])
+        ok = np.concatenate([h[2] for h in hist[tpd]])       # 0/1 = 该笔是否猜对
         wrs = []
         for i in range(nb):
             m = g == i
-            wrs.append(float(y[m].mean()) if m.sum() else float("nan"))
-        a_store[tpd] = (wrs, y, g)
+            wrs.append(float(ok[m].mean()) if m.sum() else float("nan"))
         mono = all(wrs[i] <= wrs[i + 1] + 1e-9 for i in range(nb - 1))
         spread = wrs[-1] - wrs[0]
         top_ev = pay * wrs[-1] - (1 - wrs[-1])
-        print(f"{tpd:>6.1f}{len(y):>8d}"
+        print(f"{tpd:>6.1f}{len(ok):>8d}"
               + "".join(f"{w * 100:>8.2f}%" if w == w else f"{'-':>9}" for w in wrs)
               + f"{'是' if mono else '否':>7}{spread * 100:>+7.2f}pp{top_ev:>+10.3f}")
 
@@ -295,7 +294,7 @@ def main() -> None:
     mem_sizes: list[int] = []
     # export 诊断用：monthly[key] = 该月 test 的分数/标签/各 tpd 阈值
     monthly: list[dict] = []
-    # hist[tpd] = [(月索引, 命中样本档号, 命中样本标签), ...]
+    # hist[tpd] = [(月索引, 命中样本档号, 命中样本是否猜对 0/1), ...]
     hist: dict[float, list[tuple[int, np.ndarray, np.ndarray]]] = {t: [] for t in TPD_LIST}
 
     for mj, m in enumerate(months):
@@ -363,8 +362,9 @@ def main() -> None:
             per[tpd]["mon"].append(float(w.mean()))
             monthly[mi]["thrs"][tpd] = thr
             if COLLECT_HIST:
+                # 存「是否猜对」而非标签本身，report 里直接取均值即胜率
                 hist[tpd].append((mi, grade(np.abs(s[hit]), HIST_BINS),
-                                  y_all[i_te][hit].astype(np.int8)))
+                                  ((s[hit] > 0).astype(int) == y_all[i_te][hit]).astype(np.int8)))
             if tpd == PRIMARY_TPD:
                 line += f" | 阈值={thr:.4f} {nb / nd:.1f}单/天 胜率={w.mean() * 100:.2f}%"
                 # 入库：本月「被选中且预测正确」的样本，按月限量（w 是 hit 子集，需回映射）
