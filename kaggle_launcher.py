@@ -1081,6 +1081,26 @@ PROJECTS = {
              "PLACEBO": "1", "PLACEBO_SEEDS": "2",
              "PAYOUTS": "0.853,0.85", "KLINE_FROM": "2020"},
     ),
+    # 1h 真 K 线 + 预测下一根（= 1 小时）（2026-11-18）：用户问「1h K 预测未来 1 根能否行」。
+    # 与基础模型（Chronos 1h AUC 0.498 FAIL）对照，这次用 LGBM + build_bar 的 b_* 原生特征。
+    # 1h bar 稀疏：4 年窗只有 ~35k 行 → MIN_TRAIN=20000 / MIN_TEST=400；
+    # 每月 ~720 个候选，tpd=4 意味 top 0.56%（分位分母 BARS_PER_DAY=24）。
+    "bar60sig": dict(
+        slug="byh850515/btcusdt-60m-bar-next-signal",
+        title="BTCUSDT 60m Bar Next Signal",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "BAR": "60", "HORIZON": "60",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000",
+             "WIN_DAYS": "1460", "STRIDE": "1",
+             "MIN_TRAIN": "20000", "MIN_TEST": "400",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "1,2,4,8", "PRIMARY_TPD": "4",
+             "PLACEBO": "1", "PLACEBO_SEEDS": "2",
+             "PAYOUTS": "0.85,0.838", "KLINE_FROM": "2020"},
+    ),
     # h=30 因果口径摸底（2026-11-15）：仓库里 h=30 只有前视 top-K 的 55.20%（月 min 43.7%、
     # EV@0.853 仅 +2.3%），与 h=10 的因果 63.32% 不同口径、不可比。先把 h10_signal 管线
     # 参数化到 h=30 拿同口径数字。判据预登记：因果口径 ≥58% 才进特征 A/B；56~58% 只当分散

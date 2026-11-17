@@ -82,6 +82,10 @@ PAYOUTS = [float(x) for x in os.environ.get("PAYOUTS", "0.80,0.828").split(",") 
 # 阈值分位分母：test 是 1m 行，所以 1440 = 每天 1440 个候选位置。
 # 保持 1440 才与 h=10 的 63.32% 同口径（实盘合并同一段连续触发是另一回事，见 §36 之后的口径备忘）。
 BARS_PER_DAY = int(os.environ.get("BARS_PER_DAY", str(1440 // BAR)))
+# 1h 等粗粒度下，4 年窗口只有 ~35k 行，默认 100k 门槛会跳过所有月；
+# 用 MIN_TRAIN 覆盖（默认 100_000 保持现役口径不变）
+MIN_TRAIN = int(os.environ.get("MIN_TRAIN", "100000"))
+MIN_TEST = int(os.environ.get("MIN_TEST", "1000"))
 # 标签重叠 HORIZON 根：stride=HORIZON 抽样已证等价（§35），只用于摸底/月度重训；
 # 对外正式数字保持 STRIDE=1（全量）。
 STRIDE = int(os.environ.get("STRIDE", "1"))
@@ -358,7 +362,7 @@ def main() -> None:
         lo = m_start - WIN_DAYS * 86_400_000
         tr_all = df.filter((pl.col("close_time") < m_start) & (pl.col("close_time") >= lo))
         te = df.filter(pl.col("ym") == m)
-        if tr_all.height < 100_000 or te.height < 1000:
+        if tr_all.height < MIN_TRAIN or te.height < MIN_TEST:
             log(f"[{m}] 样本不足（{tr_all.height:,}/{te.height:,}），跳过")
             continue
         h_all = tr_all.height
