@@ -126,7 +126,7 @@ def main() -> None:
     # Chronos-Bolt: list of 1d context -> forecast [num_series, num_quantiles, pred_len]
     contexts = [lc[t - CONTEXT:t] for t in anchors]
     log(f"forecast batch n={len(contexts)} ctx={CONTEXT} ...")
-    fc = pipeline.predict(context=torch.tensor(np.asarray(contexts, dtype=np.float32)),
+    fc = pipeline.predict(torch.tensor(np.asarray(contexts, dtype=np.float32)),
                           prediction_length=max(HORIZONS))
     fc = fc.detach().cpu().numpy() if hasattr(fc, "detach") else np.asarray(fc)
     log(f"forecast raw shape={fc.shape}")
