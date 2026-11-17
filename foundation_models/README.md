@@ -120,7 +120,30 @@
   （b）概率/路径输出能否改善**尾部校准**（当前 topK 胜率与阈值失准是已知痛点，见 `实验总结.md` §8.2）。
 - **红线**：不得在 test 上选模型/阈值；不得用全期 topK（前视口径，禁验收）；不得把"RankIC 高"直接宣称"能交易"。
 
-## 5. 参考链接
+## 5. 魔搭 ModelScope 执行注意事项
+
+魔搭在国内，`git clone github.com` 和 `huggingface.co` 直连经常卡住，必须用镜像：
+
+```bash
+# 1. 克隆仓库：用 ghproxy 镜像（直连会卡在 "正克隆到 'bn_bt'..."）
+cd /mnt/workspace
+git clone https://ghfast.top/https://github.com/bailiang0369/bn_bt.git
+# 若仍失败，改用 zip 下载：
+# wget https://ghfast.top/https://github.com/bailiang0369/bn_bt/archive/refs/heads/main.zip -O bn_bt.zip
+# unzip bn_bt.zip && mv bn_bt-main bn_bt
+
+# 2. 一键运行（已自动设 HF_ENDPOINT=hf-mirror.com、数据下载带 ghproxy 镜像、不碰预装 torch）
+cd bn_bt
+python -m foundation_models.run_modelscope --model timesfm --anchors 3000 --bar 1
+```
+
+- 魔搭 Notebook 入口：modelscope.cn → 我的 Notebook → 实例"运行中" → 点"查看 Notebook"进 JupyterLab。
+- 免费 A10 实例：空闲 1h 自动关、单次 8h 强制停；同时只能跑 1 个实例，启动新实例一直卡住通常是旧实例还占着。
+- `run_modelscope.py` 做的处理：设 `HF_ENDPOINT=https://hf-mirror.com`、只装轻量依赖
+  （`pip install timesfm==2.0.2` 不带 `[torch]` extra，保留魔搭预装 torch/cuda）、
+  数据从 GitHub Release 下载失败自动切 ghfast.top 镜像、结果写 `/mnt/workspace/bn_bt/artifacts/`。
+
+## 6. 参考链接
 
 - Kronos: https://github.com/shiyu-coder/Kronos | arXiv 2508.02739 | HF `NeoQuasar/Kronos-small`
 - KiT: https://github.com/Luciferbobo/KiT | arXiv 2609.34507 | HF `Lucifer744/KiT_model`
