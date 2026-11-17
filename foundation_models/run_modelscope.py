@@ -83,7 +83,8 @@ def main() -> None:
     log(f"HF_ENDPOINT={os.environ['HF_ENDPOINT']}")
     # 轻量依赖；torch 用魔搭预装版，绝不 pip install torch / timesfm[torch]
     pip("numpy>=1.26.4", "huggingface_hub>=0.23.0", "safetensors>=0.5.3",
-        "scipy", "scikit-learn", "einshape", "jaxtyping")
+        "scipy", "scikit-learn", "einshape", "jaxtyping",
+        "polars", "pandas", "requests")
     if args.model == "timesfm":
         pip("timesfm==2.0.2")            # 不带 [torch] extra，保留预装 torch/cuda
     else:
