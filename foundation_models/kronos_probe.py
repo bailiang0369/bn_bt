@@ -129,9 +129,10 @@ def main() -> None:
     rows = []
     for i, t in enumerate(anchors):
         x_df = df.iloc[t - LOOKBACK:t][["open", "high", "low", "close", "volume"]].reset_index(drop=True)
-        x_ts = df.iloc[t - LOOKBACK:t]["time"].reset_index(drop=True)
-        y_ts = pd.to_datetime(df["close_time"].iloc[t] + np.arange(1, PRED_LEN + 1) * 60_000,
-                              unit="ms", utc=True)
+        x_ts = pd.Series(df.iloc[t - LOOKBACK:t]["time"].to_numpy())
+        y_ts = pd.Series(pd.to_datetime(
+            df["close_time"].iloc[t] + np.arange(1, PRED_LEN + 1) * 60_000,
+            unit="ms", utc=True))
         try:
             pred = predictor.predict(df=x_df, x_timestamp=x_ts, y_timestamp=y_ts,
                                      pred_len=PRED_LEN, T=TEMP, top_p=TOP_P,
