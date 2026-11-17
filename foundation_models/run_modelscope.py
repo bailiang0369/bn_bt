@@ -32,7 +32,10 @@ def log(msg: str) -> None:
 
 
 def pip(*pkgs: str) -> None:
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", *pkgs], check=True)
+    # 魔搭在国内，强制用阿里云 PyPI 镜像，避免卡在 pypi.org
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                    "--index-url", "https://mirrors.aliyun.com/pypi/simple/",
+                    *pkgs], check=True)
 
 
 def ensure_data(symbol: str, years: list[str]) -> None:
@@ -79,7 +82,7 @@ def main() -> None:
 
     log(f"HF_ENDPOINT={os.environ['HF_ENDPOINT']}")
     # 轻量依赖；torch 用魔搭预装版，绝不 pip install torch / timesfm[torch]
-    pip("numpy>=1.26.4", "huggingface_hub[cli]>=0.23.0", "safetensors>=0.5.3",
+    pip("numpy>=1.26.4", "huggingface_hub>=0.23.0", "safetensors>=0.5.3",
         "scipy", "scikit-learn", "einshape", "jaxtyping")
     if args.model == "timesfm":
         pip("timesfm==2.0.2")            # 不带 [torch] extra，保留预装 torch/cuda
