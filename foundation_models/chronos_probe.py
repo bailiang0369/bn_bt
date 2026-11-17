@@ -110,8 +110,9 @@ def main() -> None:
     import torch
     Cls = setup()
     log(f"loading {CKPT} on {DEVICE} ...")
-    pipeline = Cls.from_pretrained(CKPT, device_map=DEVICE, torch_dtype=torch.bfloat16)
-    log(f"pipeline loaded: {CKPT}")
+    dtype = torch.bfloat16 if DEVICE == "cuda" else torch.float32
+    pipeline = Cls.from_pretrained(CKPT, device_map=DEVICE, torch_dtype=dtype)
+    log(f"pipeline loaded: {CKPT} dtype={dtype}")
 
     df = load_data()
     c = df["close"].to_numpy(dtype=float)
