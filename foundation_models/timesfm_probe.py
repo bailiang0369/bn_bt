@@ -127,7 +127,17 @@ def main() -> None:
     log(f"saved {OUT}: {len(res)} rows")
 
     cal, test = res[res.is_test == 0], res[res.is_test == 1]
-    from sklearn.metrics import roc_auc_score
+
+    def auc(y, s):  # 手动 rank AUC，避免 numpy 降级后 sklearn 导入失败
+        y = np.asarray(y).astype(int)
+        s = np.asarray(s)
+        order = np.argsort(s)
+        ranks = np.empty(len(s), dtype=float)
+        ranks[order] = np.arange(1, len(s) + 1)
+        n1 = int(y.sum())
+        n0 = len(y) - n1
+        return float((ranks[y == 1].sum() - n1 * (n1 + 1) / 2) / (n1 * n0)) if n1 and n0 else float("nan")
+
     log(f"\n=== TimesFM 2.5 BAR={BAR}m ODDS={ODDS} BE={BE:.2f}% ===")
     for h in HORIZONS:
         s, y = f"pred_ret_{h}", f"true_up_{h}"
@@ -136,7 +146,7 @@ def main() -> None:
             continue
         thr = float(np.quantile(np.abs(cv[s].to_numpy()), 1 - TOP_FRAC))
         sel = tv[np.abs(tv[s]) >= thr]
-        auc = roc_auc_score(tv[y], tv[s])
+        auc_val = auc(tv[y], tv[s])
         win_all = float(((tv[s] > 0) == (tv[y] == 1)).mean()) * 100
         if len(sel):
             w = float(((sel[s] > 0) == (sel[y] == 1)).mean())
@@ -146,7 +156,7 @@ def main() -> None:
         else:
             w, ci, ev = float("nan"), "n/a", float("nan")
         log(f"h={h:2d} thr={thr:.6f} cal_n={len(cv)} test_n={len(tv)} "
-            f"AUC={auc:.4f} win@0={win_all:.2f}%")
+            f"AUC={auc_val:.4f} win@0={win_all:.2f}%")
         log(f"     test top{int(TOP_FRAC*100)}% n={len(sel)} win={w*100:.2f}% "
             f"CI95={ci} EV={ev:+.4f} {'PASS' if w*100>BE else 'FAIL'} vs BE")
 
