@@ -1,0 +1,54 @@
+[{"stream_name":"stdout","time":0.661468571,"data":"[kk] clone https://github.com/bailiang0369/bn_bt -\u003e /tmp/kk_repo\n"}
+,{"stream_name":"stderr","time":0.69501899,"data":"Cloning into '/tmp/kk_repo'...\n"}
+,{"stream_name":"stdout","time":2.210835209,"data":"[kk] pip install -r requirements.txt\n"}
+,{"stream_name":"stdout","time":7.517306464,"data":"[kk] run: /usr/bin/python3 -m foundation_models.chronos_pup\n"}
+,{"stream_name":"stdout","time":12.220671998,"data":"[   2.4s] pip installed chronos-forecasting\n"}
+,{"stream_name":"stdout","time":36.07674201,"data":"[  26.2s] loading amazon/chronos-bolt-mini on cpu ...\n"}
+,{"stream_name":"stderr","time":36.720931683,"data":"Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n"}
+,{"stream_name":"stderr","time":41.254207018,"data":"\rLoading weights:   0%|          | 0/101 [00:00\u003c?, ?it/s]\rLoading weights: 100%|██████████| 101/101 [00:00\u003c00:00, 3453.82it/s]\n"}
+,{"stream_name":"stdout","time":56.986333126,"data":"[  47.2s] anchors=10000 cal=6000 test=4000 horizons=[3, 10, 60]\n"}
+,{"stream_name":"stdout","time":119.003424444,"data":"[ 109.2s] forecast shape=(10000, 9, 60)\n"}
+,{"stream_name":"stdout","time":119.420134712,"data":"[ 109.6s] saved /kaggle/working/chronos_pup.parquet: 10000 rows\n"}
+,{"stream_name":"stdout","time":119.42726712300001,"data":"[ 109.6s] \n"}
+,{"stream_name":"stdout","time":119.427299083,"data":"=== Chronos P(up) BAR=1m BE=55.56% ===\n"}
+,{"stream_name":"stderr","time":119.44576364,"data":"Traceback (most recent call last):\n"}
+,{"stream_name":"stderr","time":119.44605445,"data":"  File \"/usr/local/lib/python3.13/dist-packages/pandas/core/indexes/base.py\", line 3812, in get_loc\n"}
+,{"stream_name":"stderr","time":119.44606916,"data":"    return self._engine.get_loc(casted_key)\n"}
+,{"stream_name":"stderr","time":119.4460753,"data":"           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\n"}
+,{"stream_name":"stderr","time":119.44608054,"data":"  File \"pandas/_libs/index.pyx\", line 167, in pandas._libs.index.IndexEngine.get_loc\n"}
+,{"stream_name":"stderr","time":119.44608521,"data":"  File \"pandas/_libs/index.pyx\", line 196, in pandas._libs.index.IndexEngine.get_loc\n"}
+,{"stream_name":"stderr","time":119.44608967,"data":"  File \"pandas/_libs/hashtable_class_helper.pxi\", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item\n"}
+,{"stream_name":"stderr","time":119.44609412,"data":"  File \"pandas/_libs/hashtable_class_helper.pxi\", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item\n"}
+,{"stream_name":"stderr","time":119.44609898,"data":"KeyError: 'pup_med_3'\n"}
+,{"stream_name":"stderr","time":119.446213229,"data":"\n"}
+,{"stream_name":"stderr","time":119.44622316,"data":"The above exception was the direct cause of the following exception:\n"}
+,{"stream_name":"stderr","time":119.44622886,"data":"\n"}
+,{"stream_name":"stderr","time":119.44623394,"data":"Traceback (most recent call last):\n"}
+,{"stream_name":"stderr","time":119.446889159,"data":"  File \"\u003cfrozen runpy\u003e\", line 203, in _run_module_as_main\n"}
+,{"stream_name":"stderr","time":119.446925999,"data":"  File \"\u003cfrozen runpy\u003e\", line 88, in _run_code\n"}
+,{"stream_name":"stderr","time":119.446935129,"data":"  File \"/tmp/kk_repo/foundation_models/chronos_pup.py\", line 161, in \u003cmodule\u003e\n"}
+,{"stream_name":"stderr","time":119.446940529,"data":"    main()\n"}
+,{"stream_name":"stderr","time":119.446945039,"data":"    ~~~~^^\n"}
+,{"stream_name":"stderr","time":119.446949519,"data":"  File \"/tmp/kk_repo/foundation_models/chronos_pup.py\", line 133, in main\n"}
+,{"stream_name":"stderr","time":119.446970129,"data":"    win_med = float(((tv[f\"pup_med_{h}\"] == 1) == (tv[y] == 1)).mean()) * 100\n"}
+,{"stream_name":"stderr","time":119.446973869,"data":"                      ~~^^^^^^^^^^^^^^^^\n"}
+,{"stream_name":"stderr","time":119.446976978,"data":"  File \"/usr/local/lib/python3.13/dist-packages/pandas/core/frame.py\", line 4113, in __getitem__\n"}
+,{"stream_name":"stderr","time":119.446980499,"data":"    indexer = self.columns.get_loc(key)\n"}
+,{"stream_name":"stderr","time":119.446983779,"data":"  File \"/usr/local/lib/python3.13/dist-packages/pandas/core/indexes/base.py\", line 3819, in get_loc\n"}
+,{"stream_name":"stderr","time":119.446987269,"data":"    raise KeyError(key) from err\n"}
+,{"stream_name":"stderr","time":119.446990359,"data":"KeyError: 'pup_med_3'\n"}
+,{"stream_name":"stderr","time":121.009522679,"data":"Traceback (most recent call last):\n"}
+,{"stream_name":"stderr","time":121.009955468,"data":"  File \"/kaggle/src/script.py\", line 56, in \u003cmodule\u003e\n"}
+,{"stream_name":"stderr","time":121.009970508,"data":"    subprocess.run(run_cmd, check=True, cwd=str(ROOT))\n"}
+,{"stream_name":"stderr","time":121.009980428,"data":"    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"}
+,{"stream_name":"stderr","time":121.009983938,"data":"  File \"/usr/lib/python3.13/subprocess.py\", line 578, in run\n"}
+,{"stream_name":"stderr","time":121.009986268,"data":"    raise CalledProcessError(retcode, process.args,\n"}
+,{"stream_name":"stderr","time":121.009989278,"data":"                             output=stdout, stderr=stderr)\n"}
+,{"stream_name":"stderr","time":121.009992868,"data":"subprocess.CalledProcessError: Command '['/usr/bin/python3', '-m', 'foundation_models.chronos_pup']' returned non-zero exit status 1.\n"}
+,{"stream_name":"stderr","time":123.122435952,"data":"/usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":123.122472372,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":123.386761377,"data":"/usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":123.386797227,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":124.136095966,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":125.254495532,"data":"[NbConvertApp] Writing 283777 bytes to __results__.html\n"}
+]
