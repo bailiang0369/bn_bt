@@ -1,0 +1,34 @@
+[{"stream_name":"stdout","time":0.700699498,"data":"[kk] clone https://github.com/bailiang0369/bn_bt -\u003e /tmp/kk_repo\n"}
+,{"stream_name":"stderr","time":0.738389181,"data":"Cloning into '/tmp/kk_repo'...\n"}
+,{"stream_name":"stdout","time":2.462622435,"data":"[kk] pip install -r requirements.txt\n"}
+,{"stream_name":"stdout","time":8.028562494,"data":"[kk] run: /usr/bin/python3 -m foundation_models.chronos_probe\n"}
+,{"stream_name":"stdout","time":39.467135106,"data":"[  28.9s] loading amazon/chronos-bolt-mini on cpu ...\n"}
+,{"stream_name":"stderr","time":40.753780262,"data":"Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n"}
+,{"stream_name":"stderr","time":44.49309654,"data":"\rLoading weights:   0%|          | 0/101 [00:00\u003c?, ?it/s]\rLoading weights: 100%|██████████| 101/101 [00:00\u003c00:00, 3104.02it/s]\n"}
+,{"stream_name":"stdout","time":44.502929791,"data":"[  34.0s] pipeline loaded: amazon/chronos-bolt-mini dtype=torch.float32\n"}
+,{"stream_name":"stdout","time":45.424870609,"data":"[  34.9s] [data] BTCUSDT_1m_klines_2020.parquet 27.9MB\n"}
+,{"stream_name":"stdout","time":46.472533997,"data":"[  35.9s] [data] BTCUSDT_1m_klines_2021.parquet 28.4MB\n"}
+,{"stream_name":"stdout","time":47.328611051,"data":"[  36.8s] [data] BTCUSDT_1m_klines_2022.parquet 26.0MB\n"}
+,{"stream_name":"stdout","time":48.202709226,"data":"[  37.7s] [data] BTCUSDT_1m_klines_2023.parquet 25.3MB\n"}
+,{"stream_name":"stdout","time":49.034619657,"data":"[  38.5s] [data] BTCUSDT_1m_klines_2024.parquet 26.1MB\n"}
+,{"stream_name":"stdout","time":49.858003799,"data":"[  39.3s] [data] BTCUSDT_1m_klines_2025.parquet 26.3MB\n"}
+,{"stream_name":"stdout","time":50.700615411,"data":"[  40.2s] [data] BTCUSDT_1m_klines_2026.parquet 22.8MB\n"}
+,{"stream_name":"stdout","time":51.021128715,"data":"[  40.5s] data BAR=60m rows=60,243 2020-01-01 00:59:00+00:00 ~ 2026-11-17 00:00:00+00:00\n"}
+,{"stream_name":"stdout","time":51.022035045,"data":"[  40.5s] anchors=20000 cal=12000 test=8000\n"}
+,{"stream_name":"stdout","time":51.028796915,"data":"[  40.5s] forecast batch n=20000 ctx=336 ...\n"}
+,{"stream_name":"stdout","time":137.174627216,"data":"[ 126.6s] forecast raw shape=(20000, 9, 1)\n"}
+,{"stream_name":"stdout","time":137.174676696,"data":"[ 126.6s] median forecast shape=(20000, 1)\n"}
+,{"stream_name":"stdout","time":137.755097599,"data":"[ 127.2s] saved /kaggle/working/chronos_h1_b60.parquet: 20000 rows\n"}
+,{"stream_name":"stdout","time":137.810191483,"data":"[ 127.3s] \n"}
+,{"stream_name":"stdout","time":137.810232813,"data":"=== Chronos-Bolt BAR=60m ODDS=0.8 BE=55.56% ===\n"}
+,{"stream_name":"stdout","time":137.820446744,"data":"[ 127.3s] h= 1 thr=0.004555 cal_n=12000 test_n=8000 AUC=0.4981 win@0=49.96%\n"}
+,{"stream_name":"stdout","time":137.820483274,"data":"[ 127.3s]      test top10% n=327 win=53.52% CI95=[48.1,58.9] EV=-0.0367 FAIL vs BE\n"}
+,{"stream_name":"stdout","time":139.620471418,"data":"[kk] --- /kaggle/working ---\n"}
+,{"stream_name":"stdout","time":139.620898238,"data":"[kk]   chronos_h1_b60.parquet  0.62 MB\n"}
+,{"stream_name":"stderr","time":141.762332537,"data":"/usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":141.762376027,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":142.058212549,"data":"/usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":142.058256539,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":142.895117971,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":144.113251082,"data":"[NbConvertApp] Writing 283889 bytes to __results__.html\n"}
+]
