@@ -90,7 +90,8 @@ def main() -> None:
     torch.set_float32_matmul_precision("high")
     tfm = Cls.from_pretrained("google/timesfm-2.5-200m-pytorch",
                               torch_compile=False)
-    cfg = ForecastConfig(max_context=CONTEXT, per_core_batch_size=64)
+    cfg = ForecastConfig(max_context=CONTEXT, max_horizon=max(HORIZONS),
+                         per_core_batch_size=64, infer_is_positive=False)
     tfm.compile(cfg)
     log(f"TimesFM 2.5 loaded, ctx={CONTEXT} horizon={max(HORIZONS)}")
 
