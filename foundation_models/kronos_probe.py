@@ -53,14 +53,17 @@ def log(msg: str) -> None:
 
 
 def setup() -> Path:
-    """clone Kronos 到 /tmp；依赖只补缺失的，torch 用 Kaggle 预装 CPU 版。"""
+    """clone Kronos 到 /tmp；只补缺失依赖（Kaggle 预装 pandas/tqdm，不动版本避免 pyproject 构建失败）。"""
     dst = Path("/tmp/Kronos")
     if not (dst / "model.py").exists():
         subprocess.run(["git", "clone", "--depth=1", "https://github.com/shiyu-coder/Kronos.git",
                         str(dst)], check=True)
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q",
-                    "einops==0.8.1", "safetensors==0.6.2", "huggingface_hub==0.33.1",
-                    "pandas==2.2.2", "tqdm==4.67.1"], check=True)
+    import importlib.util
+    for mod, pkg in (("einops", "einops"), ("safetensors", "safetensors"),
+                     ("huggingface_hub", "huggingface_hub"), ("tqdm", "tqdm")):
+        if importlib.util.find_spec(mod) is None:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", pkg], check=True)
+            log(f"pip installed {pkg}")
     sys.path.insert(0, str(dst))
     return dst
 
@@ -102,11 +105,17 @@ def main() -> None:
     setup()
     from model import Kronos, KronosTokenizer, KronosPredictor  # noqa: E402
 
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    log(f"device={device} (cuda_available={torch.cuda.is_available()})")
     log(f"loading {MODEL} + {TOKENIZER} ...")
     tokenizer = KronosTokenizer.from_pretrained(TOKENIZER)
-    model = Kronos.from_pretrained(MODEL)
-    predictor = KronosPredictor(model, tokenizer, max_context=LOOKBACK)
-    log(f"model loaded: {sum(p.numel() for p in model.parameters()):,} params")
+    model = Kronos.from_pretrained(MODEL).to(device)
+    try:
+        predictor = KronosPredictor(model, tokenizer, max_context=LOOKBACK, device=device)
+    except TypeError:
+        predictor = KronosPredictor(model, tokenizer, max_context=LOOKBACK)
+    log(f"model loaded: {sum(p.numel() for p in model.parameters()):,} params on {device}")
 
     df = load_data()
     c = df["close"].to_numpy(dtype=float)
