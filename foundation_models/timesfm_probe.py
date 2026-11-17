@@ -42,14 +42,12 @@ def log(msg: str) -> None:
 
 
 def setup():
-    # 2.5 checkpoint 用 2.0.x 的 TimesFm API；3.x 改成了 TimesFM3Evaluator。
-    # 直接强制装固定版本（Kaggle kernel 每次都是干净进程，不用 reload）。
+    # 2.5 checkpoint 对应 timesfm==2.0.2，API = TimesFM_2p5_200M_torch（不是 TimesFm）。
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--force-reinstall",
                     "timesfm[torch]==2.0.2"], check=True)
-    import timesfm
-    assert hasattr(timesfm, "TimesFm"), "timesfm 2.0.2 应暴露 TimesFm"
-    log("timesfm[torch]==2.0.2 ready")
-    return timesfm
+    from timesfm import TimesFM_2p5_200M_torch, ForecastConfig
+    log("timesfm[torch]==2.0.2 (TimesFM_2p5_200M_torch) ready")
+    return TimesFM_2p5_200M_torch, ForecastConfig
 
 
 def fetch_year(year: str) -> pl.DataFrame:
@@ -87,16 +85,14 @@ def load_data() -> pd.DataFrame:
 
 
 def main() -> None:
-    timesfm = setup()
-    tfm = timesfm.TimesFm(
-        hparams=timesfm.TimesFmHparams(
-            backend="gpu", per_core_batch_size=64,
-            horizon_len=max(HORIZONS) + 1, num_layers=20, model_dims=1280),
-        checkpoint=timesfm.TimesFmCheckpoint(
-            huggingface_repo_id="google/timesfm-2.5-200m-pytorch"),
-    )
-    tfm.load_from_checkpoint()
-    log(f"TimesFM loaded ctx={tfm.hparams.context_len} horizon={tfm.hparams.horizon_len}")
+    Cls, ForecastConfig = setup()
+    import torch
+    torch.set_float32_matmul_precision("high")
+    tfm = Cls.from_pretrained("google/timesfm-2.5-200m-pytorch",
+                              torch_compile=False)
+    cfg = ForecastConfig(max_context=CONTEXT, per_core_batch_size=64)
+    tfm.compile(cfg)
+    log(f"TimesFM 2.5 loaded, ctx={CONTEXT} horizon={max(HORIZONS)}")
 
     df = load_data()
     c = df["close"].to_numpy(dtype=float)
@@ -107,13 +103,11 @@ def main() -> None:
     cal_cut = int(len(anchors) * CAL_FRAC)
     log(f"anchors={len(anchors)} cal={cal_cut} test={len(anchors)-cal_cut}")
 
-    # 一次批量前向：context = log(close) 过去 CONTEXT 根
-    contexts = np.stack([lc[t - CONTEXT:t] for t in anchors]).astype(np.float32)
-    log(f"forecast batch {contexts.shape} ...")
-    fc = tfm.forecast(contexts, batch_size=64)
+    # 一次批量前向：list of 1d log(close) 序列，返回 (points, quantiles)
+    inputs = [lc[t - CONTEXT:t] for t in anchors]
+    log(f"forecast batch n={len(inputs)} ctx={CONTEXT} ...")
+    fc, _q = tfm.forecast(max(HORIZONS), inputs)
     fc = np.asarray(fc)
-    if fc.ndim == 3:                    # 某些版本返回 (batch, horizon, 1)
-        fc = fc[..., 0]
     log(f"forecast done shape={fc.shape}")
 
     rows = []
