@@ -42,12 +42,13 @@ def log(msg: str) -> None:
 
 
 def setup():
-    import importlib.util
-    if importlib.util.find_spec("timesfm") is None:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "timesfm[torch]"],
-                       check=True)
-        log("pip installed timesfm[torch]")
+    # 2.5 checkpoint 用 2.0.x 的 TimesFm API；3.x 改成了 TimesFM3Evaluator。
+    # 直接强制装固定版本（Kaggle kernel 每次都是干净进程，不用 reload）。
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--force-reinstall",
+                    "timesfm[torch]==2.0.2"], check=True)
     import timesfm
+    assert hasattr(timesfm, "TimesFm"), "timesfm 2.0.2 应暴露 TimesFm"
+    log("timesfm[torch]==2.0.2 ready")
     return timesfm
 
 
