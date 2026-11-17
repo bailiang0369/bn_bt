@@ -72,6 +72,13 @@ def fetch_year(year):
 
 
 def main():
+    import subprocess
+    import sys
+    import importlib.util
+    if importlib.util.find_spec("chronos") is None:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "chronos-forecasting"],
+                       check=True)
+        log("pip installed chronos-forecasting")
     import torch
     from chronos import BaseChronosPipeline
     log(f"loading {CKPT} on {DEVICE} ...")
