@@ -222,19 +222,22 @@ def build_bar(df: pl.DataFrame, bar: int) -> tuple[pl.DataFrame, list[str]]:
     def k_of(m: int) -> int:
         return max(1, m // bar)
 
+    def ms(k: int, want: int = 2) -> int:      # min_samples 不得超过窗口长度（粗 bar 下 k=1）
+        return min(max(1, want, k // 2), k)
+
     e: list[pl.Expr] = []
     for m in (5, 10, 15, 30, 60, 120, 240, 480, 1440):
         e.append(((c / c.shift(k_of(m))).log() * 1e4).alias(f"b_ret{m}"))
     for m in (30, 60, 240, 1440):
         k = k_of(m)
-        ma = c.rolling_mean(k, min_samples=max(2, k // 2))
+        ma = c.rolling_mean(k, min_samples=ms(k))
         e += [((c / ma - 1) * 1e4).alias(f"b_madev{m}"),
               ((ma / ma.shift(k) - 1) * 1e4).alias(f"b_maslope{m}"),
-              r1.rolling_std(k, min_samples=max(3, k // 2)).alias(f"b_rv{m}")]
+              r1.rolling_std(k, min_samples=ms(k, 3)).alias(f"b_rv{m}")]
     for m in (240, 1440):
         k = k_of(m)
-        lo = c.rolling_min(k, min_samples=max(2, k // 2))
-        hi = c.rolling_max(k, min_samples=max(2, k // 2))
+        lo = c.rolling_min(k, min_samples=ms(k))
+        hi = c.rolling_max(k, min_samples=ms(k))
         e.append(((c - lo) / (hi - lo + 1e-9)).alias(f"b_pos{m}"))
     abs_r1 = r1.abs()
     for m in (60, 240):
@@ -243,20 +246,20 @@ def build_bar(df: pl.DataFrame, bar: int) -> tuple[pl.DataFrame, list[str]]:
                   / (abs_r1.rolling_sum(k) + 1e-9)).alias(f"b_er{m}"))
     vol = pl.col("um_buy_vol") + pl.col("um_sell_vol")
     km = k_of(1440)
-    vm = vol.rolling_mean(km, min_samples=max(2, km // 2))
-    vs = vol.rolling_std(km, min_samples=max(2, km // 2))
+    vm = vol.rolling_mean(km, min_samples=ms(km))
+    vs = vol.rolling_std(km, min_samples=ms(km))
     e += [((vol - vm) / (vs + 1e-9)).alias("b_volz"),
           (vol / (vm + 1e-9)).alias("b_volratio")]
     tk = pl.col("um_buy_vol") / (vol + 1e-9)
     for m in (15, 60, 240):
         k = k_of(m)
-        e.append(tk.rolling_mean(k, min_samples=max(2, k // 2)).alias(f"b_taker{m}"))
+        e.append(tk.rolling_mean(k, min_samples=ms(k)).alias(f"b_taker{m}"))
     if "spot_close" in df.columns:
         basis = (c / pl.col("spot_close").cast(pl.Float64) - 1) * 1e4
         kb = k_of(60)
         e += [basis.alias("b_basis"),
               (basis - basis.shift(kb)).alias("b_basis_chg"),
-              basis.rolling_mean(kb, min_samples=max(2, kb // 2)).alias("b_basis_ma")]
+              basis.rolling_mean(kb, min_samples=ms(kb)).alias("b_basis_ma")]
     ct = pl.col("close_time")
     hour = ((ct // 3_600_000) % 24).cast(pl.Float64)
     dow = ((ct // 86_400_000) % 7).cast(pl.Float64)
