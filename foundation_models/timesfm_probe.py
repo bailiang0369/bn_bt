@@ -43,30 +43,39 @@ def log(msg: str) -> None:
 
 def setup():
     # 2.5 checkpoint 对应 timesfm==2.0.2，API = TimesFM_2p5_200M_torch（不是 TimesFm）。
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--force-reinstall",
-                    "timesfm[torch]==2.0.2"], check=True)
+    # 魔搭/本地：SKIP_TF_INSTALL=1 时不再 force-reinstall（避免破坏预装 torch/cuda），
+    # 由外部 run_modelscope.py 用 `pip install timesfm==2.0.2`（不带 [torch] extra）装好。
+    if os.environ.get("SKIP_TF_INSTALL") != "1":
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--force-reinstall",
+                        "timesfm[torch]==2.0.2"], check=True)
     from timesfm import TimesFM_2p5_200M_torch, ForecastConfig
-    log("timesfm[torch]==2.0.2 (TimesFM_2p5_200M_torch) ready")
+    log("TimesFM 2.5 API ready (TimesFM_2p5_200M_torch)")
     return TimesFM_2p5_200M_torch, ForecastConfig
 
 
 def fetch_year(year: str) -> pl.DataFrame:
-    url = f"https://github.com/{REPO}/releases/download/{TAG}/BTCUSDT_1m_klines_{year}.parquet"
-    p = Path(f"/tmp/BTCUSDT_1m_klines_{year}.parquet")
+    name = f"BTCUSDT_1m_klines_{year}.parquet"
+    cache = Path(os.environ.get("DATA_DIR", "/tmp"))
+    cache.mkdir(parents=True, exist_ok=True)
+    p = cache / name
+    bases = (f"https://github.com/{REPO}/releases/download/{TAG}",
+             f"https://ghfast.top/https://github.com/{REPO}/releases/download/{TAG}")
     if not p.exists() or p.stat().st_size < 1e6:
-        for attempt in range(5):
+        for base in bases:
             try:
-                with requests.get(url, stream=True, timeout=120) as r:
+                with requests.get(f"{base}/{name}", stream=True, timeout=120) as r:
                     r.raise_for_status()
                     with open(p.with_suffix(".part"), "wb") as f:
                         for chunk in r.iter_content(1 << 20):
                             if chunk:
                                 f.write(chunk)
                 p.with_suffix(".part").replace(p)
+                log(f"[data] {name} {p.stat().st_size / 1e6:.1f}MB")
                 break
             except Exception as e:  # noqa: BLE001
-                log(f"[dl] {year} attempt {attempt}: {type(e).__name__}")
-                time.sleep(2 ** attempt)
+                log(f"[data] {year} via {base[:38]}: {type(e).__name__}")
+        else:
+            raise SystemExit(f"数据下载失败: {name}")
     return pl.read_parquet(p, columns=["close_time", "close"])
 
 
