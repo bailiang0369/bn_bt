@@ -1,0 +1,49 @@
+[{"stream_name":"stdout","time":0.993683652,"data":"[kk] clone https://github.com/bailiang0369/bn_bt -\u003e /tmp/kk_repo\n"}
+,{"stream_name":"stderr","time":1.040955323,"data":"Cloning into '/tmp/kk_repo'...\n"}
+,{"stream_name":"stdout","time":2.002229963,"data":"[kk] pip install -r requirements.txt\n"}
+,{"stream_name":"stdout","time":9.146653764,"data":"[kk] run: /usr/bin/python3 -m foundation_models.timesfm_probe\n"}
+,{"stream_name":"stderr","time":14.795474211,"data":"WARNING: huggingface-hub 2.4.0 does not provide the extra 'cli'\n"}
+,{"stream_name":"stderr","time":348.735751642,"data":"ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.\n"}
+,{"stream_name":"stderr","time":348.735800632,"data":"bigframes 2.51.0 requires google-cloud-bigquery-storage\u003c3.0.0,\u003e=2.30.0, which is not installed.\n"}
+,{"stream_name":"stderr","time":348.735806942,"data":"s3fs 2025.12.0 requires fsspec==2025.12.0, but you have fsspec 2026.9.0 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735812749,"data":"ydata-profiling 4.18.4 requires numpy\u003c2.4,\u003e=1.22, but you have numpy 2.5.5 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735818122,"data":"dopamine-rl 4.1.2 requires gym\u003c=0.25.2, but you have gym 0.26.2 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.73582338,"data":"datasets 4.8.5 requires fsspec[http]\u003c=2026.2.0,\u003e=2023.1.0, but you have fsspec 2026.9.0 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735828402,"data":"datasets 4.8.5 requires huggingface-hub\u003c2.0,\u003e=0.25.0, but you have huggingface-hub 2.4.0 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735833601,"data":"moviepy 1.0.3 requires decorator\u003c5.0,\u003e=4.0.2, but you have decorator 5.3.1 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735838522,"data":"gcsfs 2025.12.0 requires fsspec==2025.12.0, but you have fsspec 2026.9.0 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735843228,"data":"torchvision 0.26.0+cu130 requires torch==2.11.0, but you have torch 2.15.0 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735848013,"data":"ydf 0.15.0 requires protobuf\u003c7.0.0,\u003e=5.29.1, but you have protobuf 7.36.2 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735853157,"data":"numba 0.61.2 requires numpy\u003c2.3,\u003e=1.24, but you have numpy 2.5.5 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735857971,"data":"gradio 6.30.0 requires pillow\u003c13.0,\u003e=8.0, but you have pillow 13.0.0 which is incompatible.\n"}
+,{"stream_name":"stderr","time":348.735863314,"data":"cuda-python 13.0.3 requires cuda-bindings~=13.0.3, but you have cuda-bindings 13.5.0 which is incompatible.\n"}
+,{"stream_name":"stdout","time":355.215021672,"data":"[ 343.4s] TimesFM 2.5 API ready (TimesFM_2p5_200M_torch)\n"}
+,{"stream_name":"stderr","time":355.401018192,"data":"Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n"}
+,{"stream_name":"stdout","time":365.474328969,"data":"[ 353.7s] TimesFM 2.5 loaded, ctx=512 horizon=10\n"}
+,{"stream_name":"stdout","time":368.069108177,"data":"[ 356.3s] [data] BTCUSDT_1m_klines_2020.parquet 27.9MB\n"}
+,{"stream_name":"stdout","time":371.649259534,"data":"[ 359.8s] [data] BTCUSDT_1m_klines_2021.parquet 28.4MB\n"}
+,{"stream_name":"stdout","time":373.705495429,"data":"[ 361.9s] [data] BTCUSDT_1m_klines_2022.parquet 26.0MB\n"}
+,{"stream_name":"stdout","time":374.619463438,"data":"[ 362.8s] [data] BTCUSDT_1m_klines_2023.parquet 25.3MB\n"}
+,{"stream_name":"stdout","time":377.799864434,"data":"[ 366.0s] [data] BTCUSDT_1m_klines_2024.parquet 26.1MB\n"}
+,{"stream_name":"stdout","time":378.761100017,"data":"[ 366.9s] [data] BTCUSDT_1m_klines_2025.parquet 26.3MB\n"}
+,{"stream_name":"stdout","time":379.776977609,"data":"[ 368.0s] [data] BTCUSDT_1m_klines_2026.parquet 22.7MB\n"}
+,{"stream_name":"stdout","time":380.366085881,"data":"[ 368.6s] data BAR=1m rows=3,612,067 2020-01-01 00:01:00+00:00 ~ 2026-11-16 00:00:00+00:00\n"}
+,{"stream_name":"stdout","time":380.373392104,"data":"[ 368.6s] anchors=3000 cal=1800 test=1200\n"}
+,{"stream_name":"stdout","time":380.374757714,"data":"[ 368.6s] forecast batch n=3000 ctx=512 ...\n"}
+,{"stream_name":"stdout","time":395.426137989,"data":"[ 383.6s] forecast done shape=(3000, 10)\n"}
+,{"stream_name":"stdout","time":395.639388149,"data":"[ 383.8s] saved /kaggle/working/timesfm_probe_b1.parquet: 3000 rows\n"}
+,{"stream_name":"stdout","time":395.645602561,"data":"[ 383.8s] \n"}
+,{"stream_name":"stdout","time":395.645624422,"data":"=== TimesFM 2.5 BAR=1m ODDS=0.8 BE=55.56% ===\n"}
+,{"stream_name":"stdout","time":395.655122303,"data":"[ 383.8s] h= 3 thr=0.000391 cal_n=1800 test_n=1200 AUC=0.5122 win@0=50.92%\n"}
+,{"stream_name":"stdout","time":395.655140845,"data":"[ 383.8s]      test top10% n=71 win=47.89% CI95=[36.3,59.5] EV=-0.1380 FAIL vs BE\n"}
+,{"stream_name":"stdout","time":395.657908238,"data":"[ 383.8s] h=10 thr=0.000873 cal_n=1800 test_n=1200 AUC=0.5230 win@0=51.33%\n"}
+,{"stream_name":"stdout","time":395.657924816,"data":"[ 383.8s]      test top10% n=88 win=54.55% CI95=[44.1,64.9] EV=-0.0182 FAIL vs BE\n"}
+,{"stream_name":"stdout","time":398.552432878,"data":"[kk] --- /kaggle/working ---\n"}
+,{"stream_name":"stdout","time":398.552988385,"data":"[kk]   timesfm_probe_b1.parquet  0.13 MB\n"}
+,{"stream_name":"stderr","time":400.589229495,"data":"/usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":400.589259988,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":400.869000385,"data":"/usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":400.869026403,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":401.781390476,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":402.768994306,"data":"[NbConvertApp] Writing 283524 bytes to __results__.html\n"}
+]
