@@ -1,0 +1,66 @@
+[{"stream_name":"stdout","time":1.11179656,"data":"[kk] clone https://github.com/bailiang0369/bn_bt -\u003e /tmp/kk_repo\n"}
+,{"stream_name":"stderr","time":1.17784964,"data":"Cloning into '/tmp/kk_repo'...\n"}
+,{"stream_name":"stdout","time":2.407158575,"data":"[kk] pip install -r requirements.txt\n"}
+,{"stream_name":"stdout","time":9.857488329,"data":"[kk] run: /usr/bin/python3 -m morph.h10_signal\n"}
+,{"stream_name":"stdout","time":21.786578962,"data":"[    5.2s] release vision-base: 14 个资产\n"}
+,{"stream_name":"stdout","time":21.788582552,"data":"[    5.3s] 下载 BTCUSDT_1m_klines_2020.parquet 27.9 MB[api]\n"}
+,{"stream_name":"stdout","time":23.06983182,"data":"[    6.5s] 下载 BTCUSDT_1m_klines_2021.parquet 28.4 MB[api]\n"}
+,{"stream_name":"stdout","time":24.077479967,"data":"[    7.5s] 下载 BTCUSDT_1m_klines_2022.parquet 26.0 MB[api]\n"}
+,{"stream_name":"stdout","time":25.124239131,"data":"[    8.6s] 下载 BTCUSDT_1m_klines_2023.parquet 25.3 MB[api]\n"}
+,{"stream_name":"stdout","time":26.138929776,"data":"[    9.6s] 下载 BTCUSDT_1m_klines_2024.parquet 26.1 MB[api]\n"}
+,{"stream_name":"stdout","time":27.1519249,"data":"[   10.6s] 下载 BTCUSDT_1m_klines_2025.parquet 26.3 MB[api]\n"}
+,{"stream_name":"stdout","time":29.087464454,"data":"[   12.5s] 下载 BTCUSDT_1m_klines_2026.parquet 22.8 MB[api]\n"}
+,{"stream_name":"stdout","time":31.733647102,"data":"[   10.2s] K 线原始 3,613,507 行 | 列=['close_time', 'open', 'high', 'low', 'close', 'um_buy_vol', 'um_sell_vol', 'um_count', 'spot_open', 'spot_high', 'spot_low', 'spot_close', 'spot_buy_vol', 'spot_sell_vol', 'spot_count']\n"}
+,{"stream_name":"stdout","time":31.866406955,"data":"[   10.3s]   1m 3,613,507 行 → 60m 60,243 行（真 K 线聚合）\n"}
+,{"stream_name":"stdout","time":31.94831789,"data":"[   10.4s] bar=60m 原生特征 43 列 | HORIZON=60 分钟 = 1 步 | 每天 24 个候选位置\n"}
+,{"stream_name":"stdout","time":32.086614792,"data":"[   10.5s] 特征 52 列 | 可用 60,210 行 | 2020-01 ~ 2026-11\n"}
+,{"stream_name":"stdout","time":32.102643376,"data":"[   10.5s] walk-forward 10 窗口（2026-01~2026-10）| H=60 | 滚动窗 1460 天 | es=5% thr=10% | seeds=5\n"}
+,{"stream_name":"stdout","time":32.102682222,"data":"[   10.5s] LightGBM 档位 LGB_REG=base （历史默认 63/100）\n"}
+,{"stream_name":"stdout","time":32.102688621,"data":"[   10.5s] 因果阈值：分位只在「目标月之前的 thr 段」算，test 月只用固定阈值 → 无前视\n"}
+,{"stream_name":"stdout","time":37.689001286,"data":"[   16.1s] [2026-01] train=29,781 es=1,752 thr=3,504 test=744(31天) iter=29 AUC=0.5431\n"}
+,{"stream_name":"stdout","time":37.689122656,"data":"    波段(训练窗): 00-02h:54%(89) 03-05h:41%(87) 06-08h:50%(64) 09-11h:59%(66) 12-14h:57%(56) 15-17h:48%(65) 18-20h:56%(87) 21-23h:63%(70) → 白名单 [3, 4, 6, 7] | 阈值=0.0530 4.2单/天 胜率=57.25% | 时段筛选 2.1单/天 胜率=57.81%\n"}
+,{"stream_name":"stdout","time":43.535196514,"data":"[   22.0s] [2026-02] train=29,781 es=1,752 thr=3,504 test=672(28天) iter=35 AUC=0.5312\n"}
+,{"stream_name":"stdout","time":43.535244371,"data":"    波段(训练窗): 00-02h:49%(80) 03-05h:47%(96) 06-08h:46%(67) 09-11h:71%(62) 12-14h:54%(56) 15-17h:51%(59) 18-20h:52%(84) 21-23h:65%(80) → 白名单 [3, 7] | 阈值=0.0599 6.1单/天 胜率=61.40% | 时段筛选 1.8单/天 胜率=73.47%\n"}
+,{"stream_name":"stdout","time":47.707042684,"data":"[   26.2s] [2026-03] train=29,781 es=1,752 thr=3,504 test=744(31天) iter=9 AUC=0.5498\n"}
+,{"stream_name":"stdout","time":47.70709722,"data":"    波段(训练窗): 00-02h:52%(79) 03-05h:45%(91) 06-08h:53%(81) 09-11h:67%(60) 12-14h:53%(45) 15-17h:49%(67) 18-20h:56%(90) 21-23h:61%(71) → 白名单 [3, 6, 7] | 阈值=0.0280 4.9单/天 胜率=52.94% | 时段筛选 1.8单/天 胜率=60.00%\n"}
+,{"stream_name":"stdout","time":51.752199503,"data":"[   30.2s] [2026-04] train=29,781 es=1,752 thr=3,504 test=720(30天) iter=3 AUC=0.5821\n"}
+,{"stream_name":"stdout","time":51.752238984,"data":"    波段(训练窗): 00-02h:56%(68) 03-05h:54%(84) 06-08h:52%(81) 09-11h:63%(73) 12-14h:45%(65) 15-17h:46%(69) 18-20h:61%(70) 21-23h:62%(74) → 白名单 [0, 3, 6, 7] | tpd1:单量太少 | 阈值=0.0169 4.4单/天 胜率=58.78% | 时段筛选 2.5单/天 胜率=60.00%\n"}
+,{"stream_name":"stdout","time":56.92437175,"data":"[   35.4s] [2026-05] train=29,781 es=1,752 thr=3,504 test=744(31天) iter=25 AUC=0.5430\n"}
+,{"stream_name":"stdout","time":56.924435935,"data":"    波段(训练窗): 00-02h:52%(66) 03-05h:51%(70) 06-08h:53%(76) 09-11h:59%(63) 12-14h:53%(76) 15-17h:56%(62) 18-20h:66%(96) 21-23h:57%(75) → 白名单 [3, 5, 6, 7] | 阈值=0.0507 3.6单/天 胜率=57.66% | 时段筛选 1.5单/天 胜率=66.67%\n"}
+,{"stream_name":"stdout","time":64.8962012,"data":"[200]\ttraining's auc: 0.924292\tvalid_1's auc: 0.538024\n"}
+,{"stream_name":"stdout","time":64.896239976,"data":"[   43.3s] [2026-06] train=29,781 es=1,752 thr=3,504 test=720(30天) iter=80 AUC=0.5503\n"}
+,{"stream_name":"stdout","time":64.896246405,"data":"    波段(训练窗): 00-02h:51%(74) 03-05h:58%(85) 06-08h:47%(62) 09-11h:61%(62) 12-14h:47%(62) 15-17h:56%(66) 18-20h:67%(107) 21-23h:59%(66) → 白名单 [1, 3, 5, 6, 7] | tpd1:单量太少 | 阈值=0.0817 4.4单/天 胜率=54.14% | 时段筛选 2.8单/天 胜率=50.60%\n"}
+,{"stream_name":"stdout","time":70.119782651,"data":"[   48.6s] [2026-07] train=29,781 es=1,752 thr=3,504 test=744(31天) iter=30 AUC=0.5211\n"}
+,{"stream_name":"stdout","time":70.119825235,"data":"    波段(训练窗): 00-02h:58%(84) 03-05h:52%(82) 06-08h:54%(56) 09-11h:53%(62) 12-14h:52%(62) 15-17h:51%(70) 18-20h:69%(99) 21-23h:62%(69) → 白名单 [0, 6, 7] | tpd1:单量太少 | 阈值=0.0573 3.4单/天 胜率=55.24% | 时段筛选 1.5单/天 胜率=65.22%\n"}
+,{"stream_name":"stdout","time":75.391980267,"data":"[   53.8s] [2026-08] train=29,781 es=1,752 thr=3,504 test=744(31天) iter=29 AUC=0.5635\n"}
+,{"stream_name":"stdout","time":75.392041358,"data":"    波段(训练窗): 00-02h:56%(94) 03-05h:62%(60) 06-08h:46%(52) 09-11h:59%(58) 12-14h:43%(70) 15-17h:50%(78) 18-20h:67%(101) 21-23h:58%(71) → 白名单 [0, 1, 3, 6, 7] | tpd1:单量太少 | 阈值=0.0576 3.0单/天 胜率=58.06% | 时段筛选 2.1单/天 胜率=63.08%\n"}
+,{"stream_name":"stdout","time":80.180241871,"data":"[   58.6s] [2026-09] train=29,781 es=1,752 thr=3,504 test=720(30天) iter=23 AUC=0.5547\n"}
+,{"stream_name":"stdout","time":80.180278495,"data":"    波段(训练窗): 00-02h:59%(80) 03-05h:55%(78) 06-08h:38%(50) 09-11h:61%(61) 12-14h:46%(63) 15-17h:48%(65) 18-20h:59%(105) 21-23h:65%(82) → 白名单 [0, 1, 3, 6, 7] | tpd1:单量太少 | tpd2:单量太少 | 阈值=0.0462 3.0单/天 胜率=52.81% | 时段筛选 1.9单/天 胜率=53.57%\n"}
+,{"stream_name":"stdout","time":85.267527078,"data":"[   63.7s] [2026-10] train=29,781 es=1,752 thr=3,504 test=719(30天) iter=25 AUC=0.5278\n"}
+,{"stream_name":"stdout","time":85.267588097,"data":"    波段(训练窗): 00-02h:63%(91) 03-05h:55%(71) 06-08h:55%(62) 09-11h:58%(59) 12-14h:53%(57) 15-17h:49%(73) 18-20h:58%(105) 21-23h:64%(66) → 白名单 [0, 3, 6, 7] | tpd1:单量太少 | 阈值=0.0498 3.8单/天 胜率=60.00% | 时段筛选 2.2单/天 胜率=59.09%\n"}
+,{"stream_name":"stdout","time":85.269581183,"data":"\n"}
+,{"stream_name":"stdout","time":85.269604218,"data":"   名义tpd     实际单/天      n       胜率    SE*   EV@0.8   EV@0.85    月min   月std   破50%月   滚动100min    破50%窗\n"}
+,{"stream_name":"stdout","time":85.269610216,"data":"     1.0       0.5    153   53.59% 31.23%   -0.035    -0.008  48.57%  3.85pp    1/4      53.0%     0.0%\n"}
+,{"stream_name":"stdout","time":85.26963301,"data":"     2.0       1.9    574   57.67% 15.97%   +0.038    +0.067  51.85%  5.06pp    0/9      51.0%     0.0%\n"}
+,{"stream_name":"stdout","time":85.26963676,"data":"     4.0       4.1   1232   56.98% 10.93%   +0.026    +0.054  52.81%  2.80pp    0/10      46.0%     5.1% ← 主操作点\n"}
+,{"stream_name":"stdout","time":85.269640337,"data":"     8.0       8.0   2426   55.19%  7.82%   -0.007    +0.021  52.00%  2.53pp    0/10      46.0%     4.9%\n"}
+,{"stream_name":"stdout","time":85.269644007,"data":"\n"}
+,{"stream_name":"stdout","time":85.269647419,"data":"[主操作点 tpd=4] 逐月胜率：\n"}
+,{"stream_name":"stdout","time":85.269650986,"data":"  26-01:57.3%  26-02:61.4%  26-03:52.9%  26-04:58.8%  26-05:57.7%  26-06:54.1%  26-07:55.2%  26-08:58.1%  26-09:52.8%  26-10:60.0%\n"}
+,{"stream_name":"stdout","time":85.269654699,"data":"\n"}
+,{"stream_name":"stdout","time":85.269657876,"data":"[主操作点 tpd=4] 按 UTC 小时：单量/胜率\n"}
+,{"stream_name":"stdout","time":85.269661535,"data":"  00h:  51  64.7% | 01h:  54  42.6% | 02h:  69  59.4% | 03h:  62  54.8% | 04h:  46  58.7% | 05h:  49  63.3%\n"}
+,{"stream_name":"stdout","time":85.269665076,"data":"  06h:  46  45.7% | 07h:  47  44.7% | 08h:  46  47.8% | 09h:  37  56.8% | 10h:  45  64.4% | 11h:  52  57.7%\n"}
+,{"stream_name":"stdout","time":85.269677705,"data":"  12h:  41  39.0% | 13h:  44  52.3% | 14h:  34  64.7% | 15h:  32  56.2% | 16h:  61  45.9% | 17h:  66  56.1%\n"}
+,{"stream_name":"stdout","time":85.269681209,"data":"  18h:  69  65.2% | 19h:  63  65.1% | 20h:  56  57.1% | 21h:  44  63.6% | 22h:  54  68.5% | 23h:  64  65.6%\n"}
+,{"stream_name":"stdout","time":85.269684707,"data":"\n"}
+,{"stream_name":"stdout","time":85.269687995,"data":"[时段筛选 tpd=4] n=607 单/天=2.0 胜率=60.13% EV=   +0.082   +0.112  ← 白名单由训练窗定，无前视\n"}
+,{"stream_name":"stdout","time":85.269691902,"data":"[   63.7s] DONE\n"}
+,{"stream_name":"stdout","time":86.053435085,"data":"[kk] --- /kaggle/working ---\n"}
+,{"stream_name":"stderr","time":88.972004835,"data":"/usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":88.972042149,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":89.377940023,"data":"/usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":89.37797864,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":90.389146477,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":91.984326477,"data":"[NbConvertApp] Writing 284884 bytes to __results__.html\n"}
+]
