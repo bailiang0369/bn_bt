@@ -1,0 +1,36 @@
+[{"stream_name":"stdout","time":0.694301001,"data":"[kk] clone https://github.com/bailiang0369/bn_bt -\u003e /tmp/kk_repo\n"}
+,{"stream_name":"stderr","time":0.728297085,"data":"Cloning into '/tmp/kk_repo'...\n"}
+,{"stream_name":"stdout","time":1.8376821570000001,"data":"[kk] pip install -r requirements.txt\n"}
+,{"stream_name":"stdout","time":6.8924863389999995,"data":"[kk] run: /usr/bin/python3 -m foundation_models.chronos_probe\n"}
+,{"stream_name":"stdout","time":36.646010933,"data":"[  27.3s] loading amazon/chronos-bolt-mini on cpu ...\n"}
+,{"stream_name":"stderr","time":37.03991408,"data":"Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n"}
+,{"stream_name":"stderr","time":39.622483807,"data":"\rLoading weights:   0%|          | 0/101 [00:00\u003c?, ?it/s]\rLoading weights: 100%|██████████| 101/101 [00:00\u003c00:00, 2617.96it/s]\n"}
+,{"stream_name":"stdout","time":39.632697256,"data":"[  30.3s] pipeline loaded: amazon/chronos-bolt-mini dtype=torch.float32\n"}
+,{"stream_name":"stdout","time":40.063442176,"data":"[  30.7s] [data] BTCUSDT_1m_klines_2020.parquet 27.9MB\n"}
+,{"stream_name":"stdout","time":40.640367502,"data":"[  31.3s] [data] BTCUSDT_1m_klines_2021.parquet 28.4MB\n"}
+,{"stream_name":"stdout","time":41.127846529,"data":"[  31.8s] [data] BTCUSDT_1m_klines_2022.parquet 26.0MB\n"}
+,{"stream_name":"stdout","time":41.559392722,"data":"[  32.2s] [data] BTCUSDT_1m_klines_2023.parquet 25.3MB\n"}
+,{"stream_name":"stdout","time":42.009971148,"data":"[  32.6s] [data] BTCUSDT_1m_klines_2024.parquet 26.1MB\n"}
+,{"stream_name":"stdout","time":42.424848642,"data":"[  33.1s] [data] BTCUSDT_1m_klines_2025.parquet 26.3MB\n"}
+,{"stream_name":"stdout","time":43.756276791,"data":"[  34.4s] [data] BTCUSDT_1m_klines_2026.parquet 22.8MB\n"}
+,{"stream_name":"stdout","time":44.337432681,"data":"[  35.0s] data BAR=1m rows=3,613,507 2020-01-01 00:01:00+00:00 ~ 2026-11-17 00:00:00+00:00\n"}
+,{"stream_name":"stdout","time":44.368348243,"data":"[  35.0s] anchors=10000 cal=6000 test=4000\n"}
+,{"stream_name":"stdout","time":44.373458602,"data":"[  35.0s] forecast batch n=10000 ctx=512 ...\n"}
+,{"stream_name":"stdout","time":134.543893574,"data":"[ 125.2s] forecast raw shape=(10000, 9, 10)\n"}
+,{"stream_name":"stdout","time":134.543946726,"data":"[ 125.2s] median forecast shape=(10000, 10)\n"}
+,{"stream_name":"stdout","time":135.111592153,"data":"[ 125.7s] saved /kaggle/working/chronos_probe_cpu_10k.parquet: 10000 rows\n"}
+,{"stream_name":"stdout","time":135.119536412,"data":"[ 125.7s] \n"}
+,{"stream_name":"stdout","time":135.119562785,"data":"=== Chronos-Bolt BAR=1m ODDS=0.8 BE=55.56% ===\n"}
+,{"stream_name":"stdout","time":135.131142685,"data":"[ 125.8s] h= 3 thr=0.000710 cal_n=6000 test_n=4000 AUC=0.4883 win@0=49.18%\n"}
+,{"stream_name":"stdout","time":135.131168305,"data":"[ 125.8s]      test top10% n=229 win=48.91% CI95=[42.4,55.4] EV=-0.1197 FAIL vs BE\n"}
+,{"stream_name":"stdout","time":135.134961438,"data":"[ 125.8s] h=10 thr=0.001159 cal_n=6000 test_n=4000 AUC=0.4987 win@0=49.78%\n"}
+,{"stream_name":"stdout","time":135.134985947,"data":"[ 125.8s]      test top10% n=195 win=52.82% CI95=[45.8,59.8] EV=-0.0492 FAIL vs BE\n"}
+,{"stream_name":"stdout","time":136.348998282,"data":"[kk] --- /kaggle/working ---\n"}
+,{"stream_name":"stdout","time":136.349419512,"data":"[kk]   chronos_probe_cpu_10k.parquet  0.44 MB\n"}
+,{"stream_name":"stderr","time":138.928146322,"data":"/usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":138.928192662,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":139.211690939,"data":"/usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":139.211720401,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":140.124100995,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":141.314286402,"data":"[NbConvertApp] Writing 283786 bytes to __results__.html\n"}
+]
