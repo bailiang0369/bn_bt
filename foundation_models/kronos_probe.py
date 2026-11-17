@@ -164,7 +164,7 @@ def main() -> None:
         key, truth = f"pred_ret_{h}", f"true_up_{h}"
         if key not in res or truth not in res:
             continue
-        d = res[[key, truth]].dropna()
+        d = res[[key, truth, "ret_prev"]].dropna()
         if len(d) < 30:
             log(f"h={h}: 样本不足 {len(d)}")
             continue
