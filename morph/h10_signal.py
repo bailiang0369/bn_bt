@@ -131,6 +131,9 @@ OBJECTIVE = os.environ.get("OBJECTIVE", "binary").strip().lower()
 if OBJECTIVE not in ("binary", "rank"):
     raise SystemExit(f"OBJECTIVE={OBJECTIVE} 只能是 binary|rank")
 RANK_K = int(os.environ.get("RANK_K", "30"))  # lambdarank 截断：每天 top30 名参与 NDCG
+# 方向 #4：非对称阈值。对称口径用 |p-.5| 一个分位；ASYM=1 时多/空各按 thr 段
+# 自己那侧的 |p-.5| 分位定阈值，使两侧各触发 tpd/2，适配分数分布的位置偏移。
+ASYM = os.environ.get("ASYM", "0") == "1"
 # ---------------------------------------------------------------- 超参档位（2026-11-16）
 # 本仓库长期硬编码 num_leaves=63 / min_child_samples=100，在 H5/H10/H15 的
 # 「1.05M 行 × 49 列、AUC≈0.53」极低信噪比下明显过拟合。reg2 强正则化在
@@ -385,7 +388,7 @@ def main() -> None:
         f"滚动窗 {WIN_DAYS} 天 | es={ES_FRAC:.0%} thr={THR_FRAC:.0%} | seeds={len(SEEDS)}")
     log(f"CODE_REV={CODE_REV} | OBJECTIVE={OBJECTIVE}"
         + (f" RANK_K={RANK_K}" if OBJECTIVE == "rank" else "")
-        + f" | LGB_REG={LGB_REG} {LGB_PARAMS or '（历史默认 63/100）'}")
+        + f" | ASYM={ASYM} | LGB_REG={LGB_REG} {LGB_PARAMS or '（历史默认 63/100）'}")
     log(f"因果阈值：分位只在「目标月之前的 thr 段」算，test 月只用固定阈值 → 无前视")
 
     per_tpd: dict[float, dict[str, list]] = {
@@ -470,8 +473,15 @@ def main() -> None:
                 pth_pl = pth_pl - c_pl + 0.5
                 pte_pl = pte_pl - c_pl + 0.5
             pl_auc = float(roc_auc_score(y, pte_pl))
-            thr_pl = float(np.quantile(np.abs(pth_pl - .5), 1 - PRIMARY_TPD / BARS_PER_DAY))
-            hit_pl = np.abs(pte_pl - .5) >= thr_pl
+            if ASYM:
+                q_pl = 1 - (PRIMARY_TPD / 2) / BARS_PER_DAY
+                tu_pl = float(np.quantile(np.abs(pth_pl[pth_pl > .5] - .5), q_pl)) if (pth_pl > .5).sum() >= 30 else np.inf
+                td_pl = float(np.quantile(np.abs(pth_pl[pth_pl < .5] - .5), q_pl)) if (pth_pl < .5).sum() >= 30 else np.inf
+                s_pl = pte_pl - .5
+                hit_pl = ((s_pl > 0) & (s_pl >= tu_pl)) | ((s_pl < 0) & (-s_pl >= td_pl))
+            else:
+                thr_pl = float(np.quantile(np.abs(pth_pl - .5), 1 - PRIMARY_TPD / BARS_PER_DAY))
+                hit_pl = np.abs(pte_pl - .5) >= thr_pl
             if int(hit_pl.sum()) >= 30:
                 pl_win = float(((pte_pl[hit_pl] - .5 > 0).astype(int) == y[hit_pl]).mean())
             del pth_pl, pte_pl, hit_pl, ysh, yesh
@@ -507,8 +517,16 @@ def main() -> None:
             line += (f"\n    波段(训练窗, n>={HOUR_MIN_N}, 二项检验+Bonferroni α={HOUR_ALPHA}): "
                      + " ".join(parts) + f" → 白名单 {ok_blk}")
         for tpd in TPD_LIST:
-            thr = float(np.quantile(np.abs(pth - .5), 1 - tpd / BARS_PER_DAY))
-            hit = np.abs(s) >= thr
+            if ASYM:
+                # 多空两侧分别在 thr 段定阈值，各自目标 tpd/2 单/天（严格因果）
+                q = 1 - (tpd / 2) / BARS_PER_DAY
+                thr_up = float(np.quantile(np.abs(pth[pth > .5] - .5), q)) if (pth > .5).sum() >= 30 else np.inf
+                thr_dn = float(np.quantile(np.abs(pth[pth < .5] - .5), q)) if (pth < .5).sum() >= 30 else np.inf
+                hit = ((s > 0) & (s >= thr_up)) | ((s < 0) & (-s >= thr_dn))
+                thr = float("nan")
+            else:
+                thr = float(np.quantile(np.abs(pth - .5), 1 - tpd / BARS_PER_DAY))
+                hit = np.abs(s) >= thr
             nb = int(hit.sum())
             if nb < 30:
                 line += f" | tpd{tpd:g}:单量太少"
