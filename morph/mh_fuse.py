@@ -59,7 +59,7 @@ def main() -> None:
                       .replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
         lo = m_start - hs.WIN_DAYS * 86_400_000
         scores: dict[int, dict[int, float]] = {}
-        th_scores: dict[int, np.ndarray] = {}
+        th_scores: dict[int, dict[int, float]] = {}
         base_ct = None
         base_y = None
         for h in FUSE_H:
@@ -82,28 +82,32 @@ def main() -> None:
                 mdl = fit(Xtr, ytr, feats, Xes, yes, seed=seed, params_override=hs.LGB_PARAMS)
                 pth += mdl.predict(Xth := matrix(th, feats), num_iteration=mdl.best_iteration) / len(hs.SEEDS)
                 pte += mdl.predict(matrix(te, feats), num_iteration=mdl.best_iteration) / len(hs.SEEDS)
-            th_scores[h] = pth - 0.5
+            ct_th = th["close_time"].to_numpy()
+            th_scores[h] = dict(zip(ct_th.tolist(), (pth - 0.5).tolist()))
             ct_h = te["close_time"].to_numpy()
             scores[h] = dict(zip(ct_h.tolist(), (pte - 0.5).tolist()))
             if h == PRIMARY_H:
                 base_ct = ct_h
                 base_y = te["target"].to_numpy().astype(np.int8)
 
-        if base_ct is None:
+        avail_h = [h for h in FUSE_H if h in scores and h in th_scores]
+        if base_ct is None or PRIMARY_H not in avail_h:
             log(f"[{m}] PRIMARY_H={PRIMARY_H} 无 test，跳过")
             continue
         # 融合：公共 close_time 上平均可用 h 的分数
-        common = [ct for ct in base_ct.tolist() if all(ct in scores[h] for h in FUSE_H)]
+        common = [ct for ct in base_ct.tolist() if all(ct in scores[h] for h in avail_h)]
         if len(common) < hs.MIN_TEST:
             log(f"[{m}] 公共 test 行 {len(common)} 不足，跳过")
             continue
-        s_fuse = np.array([np.mean([scores[h][ct] for h in FUSE_H]) for ct in common])
+        s_fuse = np.array([np.mean([scores[h][ct] for h in avail_h]) for ct in common])
         y = np.array([base_y[list(base_ct).index(ct)] for ct in common], dtype=np.int8)
         ct_arr = np.array(common)
         days = ge.day_id(ct_arr)
         hours = ((ct_arr // 3_600_000) % 24).astype(np.int8)
         nd = len(np.unique(days))
-        pth_fuse = np.mean([th_scores[h] for h in FUSE_H], axis=0)
+        common_th = [ct for ct in list(th_scores[avail_h[0]].keys())
+                     if all(ct in th_scores[h] for h in avail_h)]
+        pth_fuse = np.array([np.mean([th_scores[h][ct] for h in avail_h]) for ct in common_th])
         auc = float(roc_auc_score(y, s_fuse))
         line = f"[{m}] n={len(y)}({nd}天) AUC={auc:.4f}"
         for tpd in hs.TPD_LIST:
