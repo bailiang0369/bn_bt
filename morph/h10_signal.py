@@ -134,6 +134,10 @@ RANK_K = int(os.environ.get("RANK_K", "30"))  # lambdarank 截断：每天 top30
 # 方向 #4：非对称阈值。对称口径用 |p-.5| 一个分位；ASYM=1 时多/空各按 thr 段
 # 自己那侧的 |p-.5| 分位定阈值，使两侧各触发 tpd/2，适配分数分布的位置偏移。
 ASYM = os.environ.get("ASYM", "0") == "1"
+# 方向 #6：thr 段直接用日收益目标选阈值（候选 = 各 tpd 分位 + 网格），全程因果。
+# 判据：thr 段单量/天 × EV(用 thr 段胜率估计)，并要求 thr 段成交数 ≥ THR_OPT_MIN_N。
+THR_OPT = os.environ.get("THR_OPT", "0") == "1"
+THR_OPT_MIN_N = int(os.environ.get("THR_OPT_MIN_N", "200"))
 # ---------------------------------------------------------------- 超参档位（2026-11-16）
 # 本仓库长期硬编码 num_leaves=63 / min_child_samples=100，在 H5/H10/H15 的
 # 「1.05M 行 × 49 列、AUC≈0.53」极低信噪比下明显过拟合。reg2 强正则化在
@@ -388,7 +392,8 @@ def main() -> None:
         f"滚动窗 {WIN_DAYS} 天 | es={ES_FRAC:.0%} thr={THR_FRAC:.0%} | seeds={len(SEEDS)}")
     log(f"CODE_REV={CODE_REV} | OBJECTIVE={OBJECTIVE}"
         + (f" RANK_K={RANK_K}" if OBJECTIVE == "rank" else "")
-        + f" | ASYM={ASYM} | LGB_REG={LGB_REG} {LGB_PARAMS or '（历史默认 63/100）'}")
+        + f" | ASYM={ASYM} | THR_OPT={THR_OPT} | LGB_REG={LGB_REG} "
+        + f"{LGB_PARAMS or '（历史默认 63/100）'}")
     log(f"因果阈值：分位只在「目标月之前的 thr 段」算，test 月只用固定阈值 → 无前视")
 
     per_tpd: dict[float, dict[str, list]] = {
@@ -526,6 +531,26 @@ def main() -> None:
                 thr = float("nan")
             else:
                 thr = float(np.quantile(np.abs(pth - .5), 1 - tpd / BARS_PER_DAY))
+                if THR_OPT:
+                    # 围绕名义 tpd 扫 4 档候选，在 thr 段用日收益=(单/天)×EV 选最优。
+                    # 全程只用 thr 段（早于 test），严格因果；test 月固定用选中的阈值。
+                    st = np.abs(pth - .5)
+                    yth_opt = th["target"].to_numpy().astype(np.int8)
+                    ndays_th = len(np.unique(ge.day_id(th["close_time"].to_numpy())))
+                    best_dr, best_thr = -np.inf, thr
+                    for mult in (0.25, 0.5, 1.0, 2.0, 4.0):
+                        tq = 1 - min(tpd * mult, BARS_PER_DAY * 0.5) / BARS_PER_DAY
+                        cand = float(np.quantile(st, tq))
+                        m_th = st >= cand
+                        n_th = int(m_th.sum())
+                        if n_th < THR_OPT_MIN_N:
+                            continue
+                        win_th = float(((pth[m_th] - .5 > 0).astype(int) == yth_opt[m_th]).mean())
+                        ev_th = PAYOUTS[0] * win_th - (1 - win_th)
+                        dr = (n_th / max(ndays_th, 1)) * ev_th
+                        if dr > best_dr:
+                            best_dr, best_thr = dr, cand
+                    thr = best_thr
                 hit = np.abs(s) >= thr
             nb = int(hit.sum())
             if nb < 30:
