@@ -48,12 +48,14 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
 import polars as pl
+from scipy.stats import binomtest
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -65,6 +67,20 @@ try:
     sys.stdout.reconfigure(encoding="utf-8")
 except AttributeError:
     pass
+
+
+def _git_rev() -> str:
+    """打印当前代码版本，防止「本地改了没 push → kernel 跑旧代码」再次静默发生。"""
+    try:
+        root = Path(__file__).resolve().parent.parent
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                       cwd=root, stderr=subprocess.DEVNULL,
+                                       text=True).strip()
+    except Exception:
+        return "unknown"
+
+
+CODE_REV = _git_rev()
 
 HORIZON = int(os.environ.get("HORIZON", "10"))
 # bar 尺度（分钟）：1 = 原始 1m；>1 = 真 K 线重采样，并在新 bar 上重算全部特征
@@ -86,8 +102,10 @@ BARS_PER_DAY = int(os.environ.get("BARS_PER_DAY", str(1440 // BAR)))
 # 用 MIN_TRAIN 覆盖（默认 100_000 保持现役口径不变）
 MIN_TRAIN = int(os.environ.get("MIN_TRAIN", "100000"))
 MIN_TEST = int(os.environ.get("MIN_TEST", "1000"))
-# 标签重叠 HORIZON 根：stride=HORIZON 抽样已证等价（§35），只用于摸底/月度重训；
-# 对外正式数字保持 STRIDE=1（全量）。
+# 标签重叠 HORIZON 根：STRIDE=HORIZON 只在「整段聚合胜率」上近似等价
+# （h10 实测 STRIDE=10 62.35% vs 全量 63.32%，差在 SE≈3.2pp 内），但早停 best_iter
+# 和月稳定性并不等价（月 min 55.74%→50.99%，单月单 seed 可差 6.8pp）。
+# 摸底/月度重训可用，正式数字保持 STRIDE=1（全量）。
 STRIDE = int(os.environ.get("STRIDE", "1"))
 # 泄漏检查：训练+早停标签一起打乱，test AUC 必须回落到 0.50（§35.3 定的换 horizon 准入检查）
 PLACEBO = os.environ.get("PLACEBO", "0") == "1"
@@ -100,12 +118,18 @@ WITH_LIQ = os.environ.get("LIQ", "0") == "1"
 HOURFILT = os.environ.get("HOURFILT", "0") == "1"
 HOUR_BLOCK = int(os.environ.get("HOUR_BLOCK", "3"))     # 每块几小时（24 除以它要是整数）
 HOUR_MIN_WIN = float(os.environ.get("HOUR_MIN_WIN", "0.55"))  # 块胜率门槛
+# 2026-11-18 审计修复：原逻辑用 30 单门槛 + 裸胜率 55% 在 8 个块里挑，
+# 多重比较下必然选出噪声（样本外 60.13%→40.82%）。改为单侧二项检验 +
+# Bonferroni 校正，且每块至少 HOUR_MIN_N 单。
+HOUR_MIN_N = int(os.environ.get("HOUR_MIN_N", "100"))
+HOUR_ALPHA = float(os.environ.get("HOUR_ALPHA", "0.05"))
 # ---------------------------------------------------------------- 超参档位（2026-11-16）
 # 本仓库长期硬编码 num_leaves=63 / min_child_samples=100，在 H5/H10/H15 的
 # 「1.05M 行 × 49 列、AUC≈0.53」极低信噪比下明显过拟合。reg2 强正则化在
 # mem_replay 的实盘口径下 9/9 同向改善（H10 AUC 0.5324、2026 胜率 +3.7~5.9pp、
 # 2025 全年 EV 由负转正），因此接线到本生产入口；单一真源在此，mem_replay 也从这里导入。
-# 默认 base → 现役数字（tpd=8 63.32% @19.9 单/天）保持不变。
+# 默认 base → 现役数字（tpd=8 63.32% @7.4 单/天）保持不变。
+# 旧日志里的 @19.9 单/天是「仅有单天数」作分母的旧 bug，2026-11-15 已修为全部测试天数。
 LGB_PRESETS = {
     "base": {},
     "reg1": dict(num_leaves=31, min_child_samples=1000, feature_fraction=.7, lambda_l2=10),
@@ -351,7 +375,7 @@ def main() -> None:
     months = [m for m in sorted(df["ym"].unique().to_list()) if START_MONTH <= m <= END_MONTH]
     log(f"walk-forward {len(months)} 窗口（{months[0]}~{months[-1]}）| H={HORIZON} | "
         f"滚动窗 {WIN_DAYS} 天 | es={ES_FRAC:.0%} thr={THR_FRAC:.0%} | seeds={len(SEEDS)}")
-    log(f"LightGBM 档位 LGB_REG={LGB_REG} {LGB_PARAMS or '（历史默认 63/100）'}")
+    log(f"CODE_REV={CODE_REV} | LGB_REG={LGB_REG} {LGB_PARAMS or '（历史默认 63/100）'}")
     log(f"因果阈值：分位只在「目标月之前的 thr 段」算，test 月只用固定阈值 → 无前视")
 
     per_tpd: dict[float, dict[str, list]] = {
@@ -373,11 +397,13 @@ def main() -> None:
         c2 = int(h_all * (1 - THR_FRAC))
         tr, es, th = tr_all[:c1], tr_all[c1:c2], tr_all[c2:]
         if STRIDE > 1:
-            # 只对 train/es 抽样（标签重叠的冗余样本）；**thr 段必须全量**：
-            # 阈值是「每 1m 行 1-tpd/1440 分位」，thr 一旦抽样，分位对应的粒度就变了，
-            # 套到 1m 全量的 test 上命中率会被放大约 STRIDE 倍（h=30 实测名义 tpd=1
-            # 变成 5.1 单/天，tpd=4 变成 7.1）。2026-11-15 修。
-            tr, es = tr.gather_every(STRIDE), es.gather_every(STRIDE)
+            # **只抽 train**：标签重叠 HORIZON 根，训练抽 stride 可去掉冗余、加速。
+            # es 和 thr 必须全量（2026-11-18 审计修复）：
+            #   - es 被抽样时从 105k 行降到 10k，early_stopping(50) 的 AUC 噪声使
+            #     best_iter 从 235 掉到 1（只训 1 棵树），同月同种子胜率 59.28%→52.46%。
+            #   - thr 被抽样时「每 1m 行 1-tpd/1440 分位」的粒度变了，套到全量 test
+            #     会把 tpd 放大约 STRIDE 倍（h=30 实测 tpd=1→5.1 单/天）。2026-11-15 修。
+            tr = tr.gather_every(STRIDE)
         Xtr, ytr = matrix(tr, feats), tr["target"].to_numpy().astype(int)
         Xes, yes = matrix(es, feats), es["target"].to_numpy().astype(int)
         Xth = matrix(th, feats)
@@ -432,15 +458,20 @@ def main() -> None:
             thr_p = float(np.quantile(np.abs(pth - .5), 1 - PRIMARY_TPD / BARS_PER_DAY))
             m_p = np.abs(pth - .5) >= thr_p
             parts = []
-            for bi in range(24 // HOUR_BLOCK):
+            n_blocks = 24 // HOUR_BLOCK
+            for bi in range(n_blocks):
                 mk = m_p & (bth == bi)
-                if mk.sum() >= 30:
-                    w_b = float(((pth[mk] - .5 > 0).astype(int) == yth[mk]).mean())
+                if mk.sum() >= HOUR_MIN_N:
+                    wins_b = int(((pth[mk] - .5 > 0).astype(int) == yth[mk]).sum())
+                    w_b = wins_b / mk.sum()
+                    p_adj = min(1.0, binomtest(wins_b, mk.sum(), 0.5,
+                                              alternative="greater").pvalue * n_blocks)
                     parts.append(f"{bi * HOUR_BLOCK:02d}-{(bi + 1) * HOUR_BLOCK - 1:02d}h"
-                                 f":{w_b * 100:.0f}%({int(mk.sum())})")
-                    if w_b >= HOUR_MIN_WIN:
+                                 f":{w_b * 100:.0f}%(n={int(mk.sum())},p*={p_adj:.3f})")
+                    if w_b >= HOUR_MIN_WIN and p_adj < HOUR_ALPHA:
                         ok_blk.append(bi)
-            line += f"\n    波段(训练窗): " + " ".join(parts) + f" → 白名单 {ok_blk}"
+            line += (f"\n    波段(训练窗, n>={HOUR_MIN_N}, 二项检验+Bonferroni α={HOUR_ALPHA}): "
+                     + " ".join(parts) + f" → 白名单 {ok_blk}")
         for tpd in TPD_LIST:
             thr = float(np.quantile(np.abs(pth - .5), 1 - tpd / BARS_PER_DAY))
             hit = np.abs(s) >= thr

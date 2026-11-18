@@ -1043,8 +1043,9 @@ PROJECTS = {
     # ETH h=30 因果口径对齐（2026-11-15）：用户在 BTC h=30 摸底后问「BTC 都这样，ETH 岂不是
     # 更差」。ETH h=30 的旧结论（59.19%、月 std 10.60pp、连续三月 42.8/49.7/44.2 判负）是
     # **前视 top-K + 2 年滚动窗**下的，与 §37 的发现（窗口 2 年→6.7 年能把月 std 砍到 4.28pp）
-    # 直接冲突，必须用同口径重测才能下结论。配置与 h30sig 完全一致，只换标的 + 赔率两档
-    # （0.808 = ETH 10m 档，0.75 = 外盘 ETH 同周期再低 0.05~0.08 那档）。
+    # 直接冲突，必须用同口径重测才能下结论。配置与 h30sig 完全一致，只换标的。
+    # 赔率按用户 2026-11-18 纠正：h30/h60 在所有平台都 >=0.85（币安 0.85、小平台 0.853），
+    # 原 0.808/0.75 是不存在场景，已撤回；按 0.853 重跑 EV 由 -0.028 改为 -0.008（仍判负）。
     "h30eth": dict(
         slug="byh850515/ethusdt-h30-causal-signal",
         title="ETHUSDT H30 Causal Signal",
@@ -1057,7 +1058,7 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-11",
              "TPD_LIST": "1,2,4,8", "PRIMARY_TPD": "4",
              "PLACEBO": "1", "PLACEBO_SEEDS": "2",
-             "PAYOUTS": "0.808,0.75", "KLINE_FROM": "2020"},
+             "PAYOUTS": "0.853,0.85", "KLINE_FROM": "2020"},
     ),
     # 5m 真 K 线 + 60 分钟（= 12 步，与 1m/h=10 的 10 步同量级的标签重叠）（2026-11-15）
     # 用户指出：E2 的「bar 尺度无关」是拿 1m 特征取每桶最后一个快照，等于没换尺度。
@@ -1099,7 +1100,27 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "TPD_LIST": "1,2,4,8", "PRIMARY_TPD": "4",
              "PLACEBO": "1", "PLACEBO_SEEDS": "2",
-             "PAYOUTS": "0.85,0.838", "KLINE_FROM": "2020"},
+             "PAYOUTS": "0.85,0.853", "KLINE_FROM": "2020"},
+    ),
+    # HOURFILT 变体（2026-11-18 审计复核补登记）：原实验只靠手动 kk run 推送，
+    # launcher 里没有对应项目，复现链路断裂。白名单只用训练窗 thr 段定、不看 test。
+    # PAYOUTS 按用户纠正统一为 0.85/0.853（原 kernel 的 0.8 档不存在）。
+    # 注意：2026-11 样本外未通过（见 EXPERIMENTS.md §4），不可直接上线。
+    "bar60hf": dict(
+        slug="byh850515/audit-bar60-hf-full",
+        title="audit-bar60-hf-full",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "BAR": "60", "HORIZON": "60",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000",
+             "WIN_DAYS": "1460", "STRIDE": "1",
+             "MIN_TRAIN": "20000", "MIN_TEST": "400",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "1,2,4,8", "PRIMARY_TPD": "4",
+             "PLACEBO": "1", "PLACEBO_SEEDS": "2",
+             "HOURFILT": "1", "PAYOUTS": "0.85,0.853", "KLINE_FROM": "2020"},
     ),
     # h=30 因果口径摸底（2026-11-15）：仓库里 h=30 只有前视 top-K 的 55.20%（月 min 43.7%、
     # EV@0.853 仅 +2.3%），与 h=10 的因果 63.32% 不同口径、不可比。先把 h10_signal 管线
