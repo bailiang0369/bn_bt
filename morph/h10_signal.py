@@ -123,6 +123,14 @@ HOUR_MIN_WIN = float(os.environ.get("HOUR_MIN_WIN", "0.55"))  # 块胜率门槛
 # Bonferroni 校正，且每块至少 HOUR_MIN_N 单。
 HOUR_MIN_N = int(os.environ.get("HOUR_MIN_N", "100"))
 HOUR_ALPHA = float(os.environ.get("HOUR_ALPHA", "0.05"))
+# ---------------------------------------------------------------- 目标函数（2026-11-18，方向#1）
+# binary = 现役全样本 logloss；rank = LambdaRank 按 UTC 日分组优化尾部排序。
+# rank 输出是相对分数不是概率：用 thr 段中位数中心化后，走与 binary 相同的
+# |s-中心| 分位阈值 + sign 方向口径，保证两种目标函数在同一评估纪律下对撞。
+OBJECTIVE = os.environ.get("OBJECTIVE", "binary").strip().lower()
+if OBJECTIVE not in ("binary", "rank"):
+    raise SystemExit(f"OBJECTIVE={OBJECTIVE} 只能是 binary|rank")
+RANK_K = int(os.environ.get("RANK_K", "30"))  # lambdarank 截断：每天 top30 名参与 NDCG
 # ---------------------------------------------------------------- 超参档位（2026-11-16）
 # 本仓库长期硬编码 num_leaves=63 / min_child_samples=100，在 H5/H10/H15 的
 # 「1.05M 行 × 49 列、AUC≈0.53」极低信噪比下明显过拟合。reg2 强正则化在
@@ -375,7 +383,9 @@ def main() -> None:
     months = [m for m in sorted(df["ym"].unique().to_list()) if START_MONTH <= m <= END_MONTH]
     log(f"walk-forward {len(months)} 窗口（{months[0]}~{months[-1]}）| H={HORIZON} | "
         f"滚动窗 {WIN_DAYS} 天 | es={ES_FRAC:.0%} thr={THR_FRAC:.0%} | seeds={len(SEEDS)}")
-    log(f"CODE_REV={CODE_REV} | LGB_REG={LGB_REG} {LGB_PARAMS or '（历史默认 63/100）'}")
+    log(f"CODE_REV={CODE_REV} | OBJECTIVE={OBJECTIVE}"
+        + (f" RANK_K={RANK_K}" if OBJECTIVE == "rank" else "")
+        + f" | LGB_REG={LGB_REG} {LGB_PARAMS or '（历史默认 63/100）'}")
     log(f"因果阈值：分位只在「目标月之前的 thr 段」算，test 月只用固定阈值 → 无前视")
 
     per_tpd: dict[float, dict[str, list]] = {
@@ -411,11 +421,30 @@ def main() -> None:
         pth = np.zeros(th.height)
         pte = np.zeros(te.height)
         its = []
+        params_eff = dict(LGB_PARAMS)
+        if OBJECTIVE == "rank":
+            params_eff.update(objective="lambdarank", metric="ndcg",
+                              lambdarank_truncation_level=RANK_K)
+            gtr = np.bincount(np.unique(ge.day_id(tr["close_time"].to_numpy()),
+                                        return_inverse=True)[1])
+            gva = np.bincount(np.unique(ge.day_id(es["close_time"].to_numpy()),
+                                        return_inverse=True)[1])
+        else:
+            gtr = gva = None
         for seed in SEEDS:
-            mdl = fit(Xtr, ytr, feats, Xes, yes, seed=seed, params_override=LGB_PARAMS)
+            mdl = fit(Xtr, ytr, feats, Xes, yes, seed=seed, params_override=params_eff,
+                      gtr=gtr, gva=gva)
             its.append(int(mdl.best_iteration))
             pth += mdl.predict(Xth, num_iteration=mdl.best_iteration) / len(SEEDS)
             pte += mdl.predict(Xte, num_iteration=mdl.best_iteration) / len(SEEDS)
+        if OBJECTIVE == "rank":
+            # rank 输出是相对分数；平移到「伪概率」空间，使 thr 段预测涨占比 = 实际涨占比。
+            # 之后所有 |p-.5| 阈值 / sign 方向口径与 binary 完全一样，公平对撞。
+            yth_ = th["target"].to_numpy().astype(int)
+            center = float(np.quantile(pth, 1 - yth_.mean()))
+            pth = pth - center + 0.5
+            pte = pte - center + 0.5
+            log(f"  [rank] center={center:.4f} thr涨占比={yth_.mean():.3f} 平移后伪概率")
         y = te["target"].to_numpy().astype(np.int8)
         ct_ms = te["close_time"].to_numpy()
         days = ge.day_id(ct_ms)
@@ -432,9 +461,14 @@ def main() -> None:
             pth_pl = np.zeros(th.height)
             pte_pl = np.zeros(te.height)
             for seed in SEEDS[:npl]:
-                mdl = fit(Xtr, ysh, feats, Xes, yesh, seed=seed, params_override=LGB_PARAMS)
+                mdl = fit(Xtr, ysh, feats, Xes, yesh, seed=seed, params_override=params_eff,
+                          gtr=gtr, gva=gva)
                 pth_pl += mdl.predict(Xth, num_iteration=mdl.best_iteration) / npl
                 pte_pl += mdl.predict(Xte, num_iteration=mdl.best_iteration) / npl
+            if OBJECTIVE == "rank":
+                c_pl = float(np.quantile(pth_pl, 1 - ysh.mean()))
+                pth_pl = pth_pl - c_pl + 0.5
+                pte_pl = pte_pl - c_pl + 0.5
             pl_auc = float(roc_auc_score(y, pte_pl))
             thr_pl = float(np.quantile(np.abs(pth_pl - .5), 1 - PRIMARY_TPD / BARS_PER_DAY))
             hit_pl = np.abs(pte_pl - .5) >= thr_pl

@@ -90,11 +90,16 @@ def report(tag: str, score: np.ndarray, y: np.ndarray, days: np.ndarray) -> floa
 def fit(Xtr: np.ndarray, ytr: np.ndarray, cols: list[str],
         Xva: np.ndarray | None = None, yva: np.ndarray | None = None,
         seed: int | None = None,
-        params_override: dict | None = None) -> lgb.Booster:
+        params_override: dict | None = None,
+        gtr: np.ndarray | None = None,
+        gva: np.ndarray | None = None) -> lgb.Booster:
     """单模型训练；`seed` 显式传入时覆盖模块默认，用于多 seed 概率平均。
 
     `params_override`（2026-11-16）：把超参档位（如长周期用的 reg2 强正则化）接进
     生产入口。**不传时行为与历史完全一致**，老调用方零影响。
+
+    `gtr/gva`（2026-11-18）：LambdaRank 的 group（每个 UTC 日的行数），仅当
+    objective=lambdarank 时需要；binary 模式忽略。
     """
     params = dict(objective="binary", metric="auc", boosting_type="gbdt",
                   learning_rate=0.05, num_leaves=63, feature_fraction=0.9,
@@ -103,10 +108,17 @@ def fit(Xtr: np.ndarray, ytr: np.ndarray, cols: list[str],
                   num_threads=os.cpu_count() or 4)
     if params_override:
         params.update(params_override)
-    ds_tr = lgb.Dataset(Xtr, ytr, feature_name=cols)
+    if params["objective"] == "lambdarank":
+        params.setdefault("metric", "ndcg")
+        params.setdefault("lambdarank_truncation_level", 30)
+        params.setdefault("lambdarank_norm", True)
+    ds_tr = (lgb.Dataset(Xtr, ytr, feature_name=cols, group=gtr)
+             if gtr is not None else lgb.Dataset(Xtr, ytr, feature_name=cols))
     valid, callbacks = [ds_tr], [lgb.log_evaluation(200)]
     if Xva is not None and len(yva):
-        valid.append(lgb.Dataset(Xva, yva, reference=ds_tr))
+        ds_va = (lgb.Dataset(Xva, yva, reference=ds_tr, group=gva)
+                 if gva is not None else lgb.Dataset(Xva, yva, reference=ds_tr))
+        valid.append(ds_va)
         callbacks.append(lgb.early_stopping(50, verbose=False))
     return lgb.train(params, ds_tr, num_boost_round=ROUNDS,
                      valid_sets=valid, callbacks=callbacks)
