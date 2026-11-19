@@ -30,6 +30,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from morph import ob_kline as ok
 from morph.two_legs import fit
 
+# 复用 ob_rolling（已复制到 morph/okx_l2.py）把 61 列 L1 扩展到 185 列（与币安同口径）
+from morph.okx_l2 import _reindex, build_l2
+
+L2_EXPAND = os.environ.get("L2_EXPAND", "1") == "1"
+
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except AttributeError:
@@ -63,11 +68,19 @@ def main() -> None:
     if not Path(feat_path).exists():
         raise SystemExit(f"OKX feature file not found: {feat_path}")
     okx = pl.read_parquet(feat_path)
-    cols = [c for c in okx.columns if c.startswith("okx_")
+    # 去前缀 → 与币安 L1 同构 → 跑 L2 扩展到 185 列
+    raw = okx.rename({c: c.removeprefix("okx_") for c in okx.columns if c != "close_time"})
+    if L2_EXPAND:
+        raw = _reindex(raw)
+        raw = build_l2(raw)
+        log(f"L2 expanded to {raw.width} cols (binance parity)")
+    # 剔除档数类不可比特征
+    cols = [c for c in raw.columns if c != "close_time" and c != "ob_missing"
             and not any(c.startswith(p) for p in
-                        ("okx_ob_n_", "okx_ob_levels_ratio", "okx_ob_qmean",
-                         "okx_ob_qcv", "okx_ob_qmax_ratio"))]
-    log(f"OKX features: {okx.height:,} rows, {len(cols)} usable cols (count-type dropped)")
+                        ("ob_n_", "ob_levels_ratio", "ob_qmean", "ob_qcv",
+                         "ob_qmax_ratio", "ob_vol_bucket"))]
+    okx = raw
+    log(f"OKX features: {okx.height:,} rows, {len(cols)} usable cols")
 
     # 2. 加载币安 1m K 线，算 h=3 标签
     sym = os.environ.get("SYMBOL", "BTCUSDT")
