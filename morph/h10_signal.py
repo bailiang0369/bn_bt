@@ -390,7 +390,7 @@ def main() -> None:
     months = [m for m in sorted(df["ym"].unique().to_list()) if START_MONTH <= m <= END_MONTH]
     log(f"walk-forward {len(months)} 窗口（{months[0]}~{months[-1]}）| H={HORIZON} | "
         f"滚动窗 {WIN_DAYS} 天 | es={ES_FRAC:.0%} thr={THR_FRAC:.0%} | seeds={len(SEEDS)}")
-    log(f"CODE_REV={CODE_REV} | OBJECTIVE={OBJECTIVE}"
+    log(f"CODE_REV={CODE_REV} | MODEL={os.environ.get('MODEL','lgb')} | OBJECTIVE={OBJECTIVE}"
         + (f" RANK_K={RANK_K}" if OBJECTIVE == "rank" else "")
         + f" | ASYM={ASYM} | THR_OPT={THR_OPT} | LGB_REG={LGB_REG} "
         + f"{LGB_PARAMS or '（历史默认 63/100）'}")

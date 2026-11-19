@@ -87,12 +87,57 @@ def report(tag: str, score: np.ndarray, y: np.ndarray, days: np.ndarray) -> floa
 
 
 # ---------------------------------------------------------------- 训练
+class _XGBWrapper:
+    """把 XGBClassifier 包成 LightGBM Booster 的接口，让 h10_signal.py 零改动。
+
+    XGB 的 best_iteration 是 0-based；LGB 的 num_iteration 是 1-based 棵树数。
+    统一为：predict(X, num_iteration=k) 用前 k 棵树（k=best_iteration 时即早停最优）。
+    """
+    def __init__(self, model):
+        self.model = model
+
+    @property
+    def best_iteration(self) -> int:
+        b = getattr(self.model, "best_iteration", None)
+        return int(b) if b is not None else ROUNDS
+
+    def predict(self, X: np.ndarray, num_iteration: int | None = None) -> np.ndarray:
+        k = int(num_iteration) if num_iteration is not None else self.best_iteration
+        return self.model.predict_proba(X, iteration_range=(0, k + 1))[:, 1]
+
+
+def _fit_xgb(Xtr, ytr, cols, Xva, yva, seed, params_override) -> _XGBWrapper:
+    """XGBoost 后端；与 LGB 同 seed / 同 early-stopping(50) / 同 ROUNDS。
+
+    超参刻意用 XGB 的常规默认（eta=0.05, max_depth=6, subsample/colsample=0.9,
+    min_child_weight=10, reg_lambda=1），不针对本任务调参——这样才能回答
+    「XGB 在二元预测中是否天然优于 LGB」这个一般性问题，而不是比谁调得更细。
+    """
+    try:
+        from xgboost import XGBClassifier
+    except ImportError as e:
+        raise SystemExit("MODEL=xgb 需要 xgboost（Kaggle 镜像自带）") from e
+    params = dict(objective="binary:logistic", eval_metric="auc",
+                  eta=0.05, max_depth=6, subsample=0.9, colsample_bytree=0.9,
+                  min_child_weight=10, reg_lambda=1.0, tree_method="hist",
+                  n_estimators=ROUNDS, random_state=SEED if seed is None else seed,
+                  n_jobs=os.cpu_count() or 4, verbosity=0,
+                  early_stopping_rounds=50)
+    # params_override 来自 LGB 档位（base 为空）；XGB 对撞只用 base，忽略覆盖项以避免口径混淆
+    m = XGBClassifier(**params)
+    if Xva is not None and len(yva):
+        m.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
+    else:
+        m.fit(Xtr, ytr, verbose=False)
+    return _XGBWrapper(m)
+
+
 def fit(Xtr: np.ndarray, ytr: np.ndarray, cols: list[str],
         Xva: np.ndarray | None = None, yva: np.ndarray | None = None,
         seed: int | None = None,
         params_override: dict | None = None,
         gtr: np.ndarray | None = None,
-        gva: np.ndarray | None = None) -> lgb.Booster:
+        gva: np.ndarray | None = None):
     """单模型训练；`seed` 显式传入时覆盖模块默认，用于多 seed 概率平均。
 
     `params_override`（2026-11-16）：把超参档位（如长周期用的 reg2 强正则化）接进
@@ -100,7 +145,12 @@ def fit(Xtr: np.ndarray, ytr: np.ndarray, cols: list[str],
 
     `gtr/gva`（2026-11-18）：LambdaRank 的 group（每个 UTC 日的行数），仅当
     objective=lambdarank 时需要；binary 模式忽略。
+
+    `MODEL`（2026-11-20）：环境变量，lgb（默认，现役）或 xgb（XGBoost 横比）。
+    xgb 时忽略 params_override / gtr / gva，用常规默认超参，保证「只换模型」的对撞。
     """
+    if os.environ.get("MODEL", "lgb").strip().lower() == "xgb":
+        return _fit_xgb(Xtr, ytr, cols, Xva, yva, seed, params_override)
     params = dict(objective="binary", metric="auc", boosting_type="gbdt",
                   learning_rate=0.05, num_leaves=63, feature_fraction=0.9,
                   bagging_fraction=0.9, bagging_freq=1, min_child_samples=100,
