@@ -50,9 +50,10 @@ def log(msg: str) -> None:
 
 def main() -> None:
     # 1. 加载 OKX 特征
-    feat_path = os.environ.get("OKX_FEAT", "")
-    if not feat_path:
-        raise SystemExit("env OKX_FEAT required")
+    feat_path = os.environ.get(
+        "OKX_FEAT", "/kaggle/input/okx-features-202510/okx_BTC-USDT_2025-10.parquet")
+    if not Path(feat_path).exists():
+        raise SystemExit(f"OKX feature file not found: {feat_path}")
     okx = pl.read_parquet(feat_path)
     cols = [c for c in okx.columns if c.startswith("okx_")
             and not any(c.startswith(p) for p in
