@@ -20,18 +20,19 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from morph import ob_kline as ok
 
-DATE = "2025-10-01"
+import datetime as dt
+
+DAY0 = int(dt.datetime(2025, 10, 1, tzinfo=dt.timezone.utc).timestamp() * 1000)
+DAY1 = DAY0 + 86_400_000
 log = lambda m: print(m, flush=True)
 
 
 def main() -> None:
-    # 币安 futures band（从 Release 拉整月会很大，这里取 2025-10 全月但只分析一天）
     a = ok._assets("data-merged")
     name = "binance_futures_minute_band_2025-10.parquet"
     bn_path = ok.fetch("data-merged", name)
-    bn = pl.read_parquet(bn_path).filter(pl.col("bucket") // 86_400_000 == int(
-        __import__("datetime").datetime(2025, 10, 1, tzinfo=__import__("datetime").timezone.utc
-                                        ).timestamp()))
+    bn = pl.read_parquet(bn_path).filter(
+        (pl.col("bucket") >= DAY0) & (pl.col("bucket") < DAY1))
     log(f"binance band day1: {bn.height:,} rows, px range "
         f"{bn['px'].min():.2f}~{bn['px'].max():.2f}")
 
@@ -48,9 +49,8 @@ def main() -> None:
                 f"p10={d.quantile(.1):.4f}, p90={d.quantile(.9):.4f}")
         return
 
-    okx = pl.read_parquet(okx_files[0]).filter(pl.col("bucket") // 86_400_000 == int(
-        __import__("datetime").datetime(2025, 10, 1, tzinfo=__import__("datetime").timezone.utc
-                                        ).timestamp()))
+    okx = pl.read_parquet(okx_files[0]).filter(
+        (pl.col("bucket") >= DAY0) & (pl.col("bucket") < DAY1))
     log(f"OKX band day1: {okx.height:,} rows")
 
     for side in ("bid", "ask"):
