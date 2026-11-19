@@ -106,24 +106,49 @@ class _XGBWrapper:
         return self.model.predict_proba(X, iteration_range=(0, k + 1))[:, 1]
 
 
+# XGB 超参档位（2026-11-20 用户质疑「LGB 调过参、XGB 用默认不公平」后加）。
+# 映射原则：与 LGB 档位的「树复杂度 / 叶子最小样本 / 特征比例 / L2」一一对应，
+# 让「XGB最优 vs LGB最优」在同等调参投入下对撞。
+#   LGB base    : num_leaves=63, min_child=100,  ff=.9, l2=0
+#   LGB reg1    : num_leaves=31, min_child=1000, ff=.7, l2=10
+#   LGB reg2    : num_leaves=15, min_child=3000, ff=.5, l2=100
+#   LGB shallow : lr=.03, num_leaves=15, min_child=500, ff=.6, l2=20, depth=4
+XGB_PRESETS = {
+    "default": dict(eta=0.05, max_depth=6, subsample=0.9, colsample_bytree=0.9,
+                    min_child_weight=10, reg_lambda=1.0),
+    "reg1":    dict(eta=0.05, max_depth=5, subsample=0.9, colsample_bytree=0.7,
+                    min_child_weight=100, reg_lambda=10.0),
+    "reg2":    dict(eta=0.05, max_depth=4, subsample=0.9, colsample_bytree=0.5,
+                    min_child_weight=300, reg_lambda=100.0),
+    "shallow": dict(eta=0.03, max_depth=4, subsample=0.9, colsample_bytree=0.6,
+                    min_child_weight=50, reg_lambda=20.0),
+    # 额外两档：XGB 特有的更强正则（LGB 没测过的区域）
+    "deep":    dict(eta=0.05, max_depth=8, subsample=0.8, colsample_bytree=0.8,
+                    min_child_weight=20, reg_lambda=5.0),
+    "conservative": dict(eta=0.03, max_depth=3, subsample=0.9, colsample_bytree=0.8,
+                         min_child_weight=200, reg_lambda=50.0),
+}
+
+
 def _fit_xgb(Xtr, ytr, cols, Xva, yva, seed, params_override) -> _XGBWrapper:
     """XGBoost 后端；与 LGB 同 seed / 同 early-stopping(50) / 同 ROUNDS。
 
-    超参刻意用 XGB 的常规默认（eta=0.05, max_depth=6, subsample/colsample=0.9,
-    min_child_weight=10, reg_lambda=1），不针对本任务调参——这样才能回答
-    「XGB 在二元预测中是否天然优于 LGB」这个一般性问题，而不是比谁调得更细。
+    档位由 XGB_PRESETS 决定（env XGB_PRESET），默认 default = 上一轮用的常规默认，
+    其余档位与 LGB 的 reg1/reg2/shallow 对应，用于公平对比「调过参的 XGB」。
     """
     try:
         from xgboost import XGBClassifier
     except ImportError as e:
         raise SystemExit("MODEL=xgb 需要 xgboost（Kaggle 镜像自带）") from e
+    preset = os.environ.get("XGB_PRESET", "default").strip().lower()
+    if preset not in XGB_PRESETS:
+        raise SystemExit(f"XGB_PRESET={preset} 只能是 {list(XGB_PRESETS)}")
     params = dict(objective="binary:logistic", eval_metric="auc",
-                  eta=0.05, max_depth=6, subsample=0.9, colsample_bytree=0.9,
-                  min_child_weight=10, reg_lambda=1.0, tree_method="hist",
-                  n_estimators=ROUNDS, random_state=SEED if seed is None else seed,
+                  tree_method="hist", n_estimators=ROUNDS,
+                  random_state=SEED if seed is None else seed,
                   n_jobs=os.cpu_count() or 4, verbosity=0,
                   early_stopping_rounds=50)
-    # params_override 来自 LGB 档位（base 为空）；XGB 对撞只用 base，忽略覆盖项以避免口径混淆
+    params.update(XGB_PRESETS[preset])
     m = XGBClassifier(**params)
     if Xva is not None and len(yva):
         m.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
