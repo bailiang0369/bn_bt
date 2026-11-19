@@ -50,8 +50,16 @@ def log(msg: str) -> None:
 
 def main() -> None:
     # 1. 加载 OKX 特征
-    feat_path = os.environ.get(
-        "OKX_FEAT", "/kaggle/input/okx-features-202510/okx_BTC-USDT_2025-10.parquet")
+    feat_path = os.environ.get("OKX_FEAT", "")
+    if not feat_path:
+        # Kaggle dataset 挂载目录含 slug 后缀，扫描找 parquet
+        cands = sorted(Path("/kaggle/input").rglob("*okx_BTC-USDT_*.parquet"))
+        if not cands:
+            cands = sorted(Path("/kaggle/input").rglob("*.parquet"))
+        if not cands:
+            raise SystemExit("no parquet under /kaggle/input; set OKX_FEAT")
+        feat_path = str(cands[0])
+        log(f"auto-found feature file: {feat_path}")
     if not Path(feat_path).exists():
         raise SystemExit(f"OKX feature file not found: {feat_path}")
     okx = pl.read_parquet(feat_path)
