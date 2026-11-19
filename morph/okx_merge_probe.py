@@ -49,15 +49,19 @@ def main() -> None:
 
     # 量级对比：匹配档位上两边 q 的中位数比
     both = matched.with_columns((pl.col("q") / pl.col("q_bn")).alias("ratio"))
-    log(f"q_okx / q_bn at matched levels: median={both['ratio'].median():.3f}, "
-        f"mean={both['ratio'].mean():.3f}, total OKX={matched['q'].sum():.0f} "
-        f"vs binance={matched['q_bn'].sum():.0f}")
+    log(f"RAW q_okx / q_bn: median={both['ratio'].median():.3f} "
+        f"(OKX unit=contracts, 1ct=0.01BTC)")
+    log(f"after ctVal=0.01: total OKX={matched['q'].sum()*0.01:.0f} BTC "
+        f"vs binance={matched['q_bn'].sum():.0f} BTC "
+        f"→ OKX/Binance={matched['q'].sum()*0.01/matched['q_bn'].sum()*100:.1f}%")
 
-    # 合并：币安 band + OKX q（按同 bucket/side/px 加，OKX 独有价位忽略，因为量极小）
+    # 单位换算：OKX SWAP 每张合约 = 0.01 BTC，必须先转成 BTC 才能与币安相加
+    CTVAL = float(__import__("os").environ.get("CTVAL", "0.01"))
     merged = bn.join(
-        okx.select(["bucket", "side", "px", "q"]).rename({"q": "q_okx"}),
+        okx.select(["bucket", "side", "px", "q"]).rename({"q": "q_okx_raw"}),
         on=["bucket", "side", "px"], how="left").with_columns(
-        (pl.col("q") + pl.col("q_okx").fill_null(0)).alias("q"))
+        (pl.col("q_okx_raw").fill_null(0) * CTVAL).alias("q_okx"),
+        (pl.col("q") + pl.col("q_okx_raw").fill_null(0) * CTVAL).alias("q"))
     merged = merged.select(["bucket", "side", "px", "q", "mid"])
     log(f"merged band: {merged.height:,} rows")
 
