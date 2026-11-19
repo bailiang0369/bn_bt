@@ -56,18 +56,21 @@ def log(msg: str) -> None:
 def main() -> None:
     # 1. 加载 OKX 特征
     feat_path = os.environ.get("OKX_FEAT", "")
-    if not feat_path:
-        # Kaggle dataset 挂载目录含 slug 后缀，扫描找 parquet
-        cands = sorted(Path("/kaggle/input").rglob("*okx_BTC-USDT_*.parquet"))
-        if not cands:
-            cands = sorted(Path("/kaggle/input").rglob("*.parquet"))
-        if not cands:
+    if feat_path:
+        paths = [Path(p.strip()) for p in feat_path.split(",")]
+    else:
+        # 扫描所有挂载 dataset 里的 OKX parquet（多个月）
+        paths = sorted(Path("/kaggle/input").rglob("*okx_BTC-USDT_*.parquet"))
+        if not paths:
+            paths = sorted(Path("/kaggle/input").rglob("*.parquet"))
+        if not paths:
             raise SystemExit("no parquet under /kaggle/input; set OKX_FEAT")
-        feat_path = str(cands[0])
-        log(f"auto-found feature file: {feat_path}")
-    if not Path(feat_path).exists():
-        raise SystemExit(f"OKX feature file not found: {feat_path}")
-    okx = pl.read_parquet(feat_path)
+    for p in paths:
+        if not p.exists():
+            raise SystemExit(f"OKX feature file not found: {p}")
+    log(f"loading {len(paths)} feature files: {[p.name for p in paths]}")
+    okx = pl.concat([pl.read_parquet(p) for p in paths]).unique(
+        subset="close_time", keep="any").sort("close_time")
     # 去前缀 → 与币安 L1 同构 → 跑 L2 扩展到 185 列
     raw = okx.rename({c: c.removeprefix("okx_") for c in okx.columns if c != "close_time"})
     if L2_EXPAND:
@@ -100,7 +103,7 @@ def main() -> None:
     log(f"joined: {df.height:,} rows, range "
         f"{df['close_time'].min()} ~ {df['close_time'].max()}")
 
-    # 4. 时间切分：最后 TEST_DAYS 天 test；前面 70/15/15
+    # 4. 时间切分：最后 TEST_MONTHS 个月 test；前面 70/15/15
     max_t = df["close_time"].max()
     test_start = max_t - TEST_DAYS * 86_400_000
     pre = df.filter(pl.col("close_time") < test_start)
