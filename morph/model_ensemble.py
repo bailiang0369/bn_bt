@@ -112,6 +112,8 @@ def main() -> None:
             zth = w * zth_l + (1 - w) * zth_x
             zte = w * zte_l + (1 - w) * zte_x
             for tpd in TPD_LIST:
+                if tpd != PRIMARY_TPD:
+                    continue  # 只统计主操作点，避免多档混在一起
                 thr_v = float(np.quantile(np.abs(zth), 1 - tpd / 1440))
                 hit = np.abs(zte) >= thr_v
                 if hit.sum() < 30:
