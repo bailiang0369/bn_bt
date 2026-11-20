@@ -127,6 +127,10 @@ XGB_PRESETS = {
                     min_child_weight=20, reg_lambda=5.0),
     "conservative": dict(eta=0.03, max_depth=3, subsample=0.9, colsample_bytree=0.8,
                          min_child_weight=200, reg_lambda=50.0),
+    # tuned：30 组随机参数搜索（xgb-tune-30）在调参窗 2026-01~03 找到的最优组合
+    # （按尾部胜率 65.47% / AUC 0.5426 的综合最佳），用于全量验证。
+    "tuned": dict(eta=0.05, max_depth=8, min_child_weight=10, subsample=1.0,
+                  colsample_bytree=0.9, reg_lambda=10.0),
 }
 
 
