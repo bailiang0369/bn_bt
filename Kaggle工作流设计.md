@@ -110,6 +110,8 @@ python kaggle_launcher.py --project morph --push --wait --logs --parse
 - **.gitignore**：排除 `data/`、`__pycache__/`、`.codebuddy/`，不把大 parquet 推上 GitHub。
 
 ## 8. 已落地 / 待首次试运行验证
+> 历史清单，仅作留档：下面两条 `[ ]` 首次试运行项早已在 2026-11 的实际实验中完成（见 `实验详录.md`），
+> 工具链的当前约定以 §9 为准。
 - [x] 仓库公开、代码已推 GitHub（main）
 - [x] 目录重组为 `morph/` `orderbook/` + 根 `kaggle_bootstrap.py`/`kaggle_launcher.py`，移除冗余 metadata
 - [x] `requirements.txt` 无版本锁（各库最新）

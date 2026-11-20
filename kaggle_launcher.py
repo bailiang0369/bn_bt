@@ -1700,6 +1700,22 @@ PROJECTS = {
              "KLINE_FROM": "2020", "AUX_SYMBOL": "ETHUSDT",
              "LABEL": "tb", "TB_K": "1.0", "FSETS": "base"},
     ),
+    # 锚定当前价的 VP（成交密集/稀疏区）：用户 2026-11-21 新口径，长回溯(2d/7d)+
+    # 绝对价格分箱+当前 close 定位桶，解决"固定窗口价格落在边缘看不到压力位"的问题。
+    # 现役 base 口径一次性验证（base/av/both/avadd 配对），先验低、预登记见脚本 doc。
+    "avp10": dict(
+        slug="byh850515/btcusdt-h10-anchored-vp-probe",
+        title="BTCUSDT H10 Anchored VP Probe",
+        entry="morph.vp_anchored_probe",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "SEEDS": "42,43,44,45,46",
+             "ROUNDS": "2000", "WIN_DAYS": "1460", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8", "PAY": "0.80",
+             "AV_WINS": "2880,10080", "AV_TICK": "5.0", "AV_ANCHOR": "120",
+             "AV_CAP": "300.0", "AV_SELFCHECK": "1", "KLINE_FROM": "2020"},
+    ),
 }
 
 # 量能 7 列对照（2026-11-16）：与 oos25h10r / reg10 配置完全相同，只切 VOL=1。
