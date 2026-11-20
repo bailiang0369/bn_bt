@@ -121,8 +121,7 @@ def main() -> None:
                 per_w[w]["d"].append(ct[hit]); per_w[w]["mon"].append(win)
         log(f"[{m}] done")
 
-    print(f"\n{'w(LGB)':>8}{'n':>7}{'单/天':>8}{'胜率':>9}{'EV@0.8':>9}{'月min':>8}{'破50':>7}{'AUC':>8}")
-    nd_days = len(set(int(d) for w in WEIGHTS for d in per_w[w]["d"]))
+    print(f"\n{'w(LGB)':>8}{'n':>7}{'单/天':>8}{'胜率':>9}{'EV@0.8':>9}{'月min':>8}{'破50':>7}")
     for w in WEIGHTS:
         p = per_w[w]
         if not p["y"]:
