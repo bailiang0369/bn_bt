@@ -149,6 +149,11 @@ def _fit_xgb(Xtr, ytr, cols, Xva, yva, seed, params_override) -> _XGBWrapper:
                   n_jobs=os.cpu_count() or 4, verbosity=0,
                   early_stopping_rounds=50)
     params.update(XGB_PRESETS[preset])
+    # XGB_PARAMS（JSON）可直接覆盖 preset，用于随机搜索得到的最优参数全量验证
+    import json as _json
+    xpg = os.environ.get("XGB_PARAMS", "").strip()
+    if xpg:
+        params.update(_json.loads(xpg))
     m = XGBClassifier(**params)
     if Xva is not None and len(yva):
         m.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)

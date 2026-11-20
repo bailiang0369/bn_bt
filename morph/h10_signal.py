@@ -392,6 +392,7 @@ def main() -> None:
         f"滚动窗 {WIN_DAYS} 天 | es={ES_FRAC:.0%} thr={THR_FRAC:.0%} | seeds={len(SEEDS)}")
     log(f"CODE_REV={CODE_REV} | MODEL={os.environ.get('MODEL','lgb')}"
         + (f" XGB_PRESET={os.environ.get('XGB_PRESET','default')}"
+           f" XGB_PARAMS={os.environ.get('XGB_PARAMS','')[:120]}"
            if os.environ.get('MODEL') == 'xgb' else "")
         + f" | OBJECTIVE={OBJECTIVE}"
         + (f" RANK_K={RANK_K}" if OBJECTIVE == "rank" else "")
