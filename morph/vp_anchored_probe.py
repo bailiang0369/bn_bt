@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
-"""锚定当前价的 VP 特征：在 h10 **现役 base 口径**下的最小验证。
+"""结构点起点的 VP 特征：在 h10 **现役 base 口径**下的最小验证（2026-11-21 口径）。
 
-与旧 vp_probe 的区别
--------------------
-- 特征换成 `vp_anchored.build_avp`：长回溯(2d/7d)、绝对价格分箱、以当前 close 定位桶，
-  解决"当前价落在固定窗口边缘、看不到继续运行方向压力位"的口径问题。
-- 用**现役 base 配置**（LGB_REG=base，num_leaves=63/min_child=100），不是 reg2；
-  与 h10 63.32% 同一口径，可直接对撞。
-- walk-forward + 因果阈值与 h10_signal 完全一致（train/es/thr 段切分，阈值只在 thr 段定）。
+口径（用户定）
+--------------
+对每个 t：回看 150 根，取区间内 max(high)/min(low) 中**离当前更近**的那个作 VP 起点
+（太近则钳到 t-30 保证 ≥30 根）；直方图 = [起点, t] 的成交量按绝对 log 价格分箱。
+窗口被兜在 ~2.5h，不会随 regime 拉到几个月导致价值区间失真。特征 8 列：
+位置/距POC/上下量比/价值区宽/跨度/起点收益/离散状态/状态持续根数。
+
+用**现役 base 配置**（num_leaves=63/min_child=100），与 h10 63.32% 同口径可对撞；
+walk-forward + 因果阈值与 h10_signal 完全一致（train/es/thr，阈值只在 thr 段定）。
 
 四个变体（同一数据/超参/seeds/splits，完全配对）：
-  base   49 列现役特征
-  av     10 列锚定 VP（判断它是否自带信息）
-  both   49+10
-  avadd  49 + 4 列局部不平衡/稀疏带（最可能非共线的两族）
-先验低、一次性验证：要求 AUC 提升 >0.002 且配对 CI 不跨 0、6 组以上同向才采纳。
+  base   49 列现役
+  av     8 列结构点 VP（判断自带信息）
+  both   49+8
+  avadd  49 + 位置/状态/状态持续 4 列（"维持 vs 突破"）
+预登记判据：AUC 提升 >0.002 且配对逐月差值 6 组以上同向、CI 不跨 0 才采纳。
 
 env: HORIZON WIN_DAYS SEEDS ROUNDS START_MONTH END_MONTH PRIMARY_TPD TPD_LIST
-     AV_WINS AV_TICK AV_ANCHOR AV_CAP AV_SELFCHECK
+     AV_LOOKBACK AV_MIN_SPAN AV_TICK AV_CAP AV_SELFCHECK
 """
 from __future__ import annotations
 
@@ -56,9 +58,9 @@ PAY = float(os.environ.get("PAY", "0.80"))
 BARS_PER_DAY = int(os.environ.get("BARS_PER_DAY", "1440"))
 TPD_LIST = [float(x) for x in os.environ.get("TPD_LIST", "2,5,8,15,30").split(",") if x.strip()]
 PRIMARY_TPD = float(os.environ.get("PRIMARY_TPD", "8"))
-AV_WINS = tuple(int(x) for x in os.environ.get("AV_WINS", "2880,10080").split(","))
+AV_LOOKBACK = int(os.environ.get("AV_LOOKBACK", "150"))
+AV_MIN_SPAN = int(os.environ.get("AV_MIN_SPAN", "30"))
 AV_TICK = float(os.environ.get("AV_TICK", "5.0"))
-AV_ANCHOR = int(os.environ.get("AV_ANCHOR", "120"))
 AV_CAP = float(os.environ.get("AV_CAP", "300.0"))
 
 # 现役 base 超参（与 h10sig 一致）
@@ -78,13 +80,13 @@ def fit(Xtr, ytr, Xes, yes, seed):
 
 def main() -> None:
     if os.environ.get("AV_SELFCHECK", "1") == "1":
-        if not avp_leak_check(windows=(240, 960), anchor=AV_ANCHOR):
+        if not avp_leak_check(lookback=AV_LOOKBACK, min_span=AV_MIN_SPAN):
             raise SystemExit("[avp] 泄露自检失败，拒绝继续")
 
     raw = kl.load_raw()
-    av, avcols = build_avp(raw, windows=AV_WINS, tick_bp=AV_TICK,
-                           anchor=AV_ANCHOR, cap_bp=AV_CAP)
-    log(f"锚定 VP {len(avcols)} 列：{avcols}")
+    av, avcols = build_avp(raw, lookback=AV_LOOKBACK, min_span=AV_MIN_SPAN,
+                           tick_bp=AV_TICK, cap_bp=AV_CAP)
+    log(f"结构点 VP {len(avcols)} 列：{avcols}")
 
     df, feats = kl.build(raw)
     df, feats = add_flow(df, feats)
@@ -102,12 +104,13 @@ def main() -> None:
     log(f"特征 base={len(f_base)} av={len(avcols)} | 可用 {df.height:,} 行 | "
         f"AV 未对齐 {miss:,} 行 | H={HORIZON} | 窗 {WIN_DAYS}d")
 
-    f_imb = [c for c in avcols if c.startswith(("av_imb50_", "av_gap_"))]
+    # 最可能非共线的一族：位置 / 状态 / 状态持续（用户要的"维持 vs 突破"）
+    f_state = [c for c in avcols if c.startswith(("av_pos_", "av_state"))]
     fsets = {
         "base": f_base,
         "av": avcols,
         "both": f_base + avcols,
-        "avadd": f_base + f_imb,
+        "avadd": f_base + f_state,
     }
     feats_all = f_base + avcols
     X_all = matrix(df, feats_all)
