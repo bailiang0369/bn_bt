@@ -137,6 +137,7 @@ def build_struct(df: pl.DataFrame, k_period=80, d_smooth=2, d_period=2,
     peak_px, trough_px = -np.inf, np.inf
     peak_conf = trough_conf = -1
     peak_k = trough_k = 0.0
+    last_conf_type = 0     # 最近一次确认的类型（每次确认必翻转）
     hist: list[tuple[int, int, float]] = []   # (idx, type, price) 按确认顺序
     seg_hi, seg_lo, last_P = -np.inf, np.inf, -1
     ptr = 0
@@ -146,17 +147,22 @@ def build_struct(df: pl.DataFrame, k_period=80, d_smooth=2, d_period=2,
         while ptr < P and cc[ptr] == t:
             pidx, ptype, pk = int(ci[ptr]), int(ct[ptr]), float(ck[ptr])
             px = high[pidx] if ptype == 1 else low[pidx]
+            # 每次确认都翻转"最近确认点"的类型（确认时间 t 是最新）；
+            # "更极端"只决定该类型用哪个点位/价位代表，不决定是否承认这次确认。
             if ptype == 1:
+                peak_conf = t
                 if px > peak_px:
-                    peak_i, peak_px, peak_conf, peak_k = pidx, px, t, pk
+                    peak_i, peak_px, peak_k = pidx, px, pk
             else:
+                trough_conf = t
                 if px < trough_px:
-                    trough_i, trough_px, trough_conf, trough_k = pidx, px, t, pk
-            # 确认事件：此行起的"最近确认点"由新点决定（同类未更极端则不变）
-            cur_P = peak_i if peak_i >= trough_i else trough_i
-            ptype_arr[t] = 1 if cur_P == peak_i else -1
+                    trough_i, trough_px, trough_k = pidx, px, pk
+            last_conf_type = ptype
+            cur_is_peak = ptype == 1
+            cur_P = peak_i if cur_is_peak else trough_i
+            ptype_arr[t] = 1 if cur_is_peak else -1
             pidx_arr[t] = cur_P
-            px_arr[t] = peak_px if cur_P == peak_i else trough_px
+            px_arr[t] = peak_px if cur_is_peak else trough_px
             fresh[t] = True
             # 历史点序列：同类更极端则替换，异类追加（真实时的交替结构）
             if hist and hist[-1][1] == ptype:
@@ -170,14 +176,18 @@ def build_struct(df: pl.DataFrame, k_period=80, d_smooth=2, d_period=2,
         out[t, 14] = sd[t]
         out[t, 15] = state[t]
 
-        # 最近确认点 = peak/trough 中 idx 更大者
-        P_idx = peak_i if peak_i >= trough_i else trough_i
+        # 最近确认点 = 最近一次确认的类型（每次确认必翻转）
+        cur_is_peak = last_conf_type == 1
+        P_idx = peak_i if cur_is_peak else trough_i
+        if P_idx < 0:  # 该类型还没确认过，退回另一个
+            cur_is_peak = not cur_is_peak
+            P_idx = peak_i if cur_is_peak else trough_i
         if P_idx < 0:
             continue
-        P_px = peak_px if P_idx == peak_i else trough_px
-        P_conf = peak_conf if P_idx == peak_i else trough_conf
-        P_kval = peak_k if P_idx == peak_i else trough_k
-        ptype = 1 if P_idx == peak_i else -1
+        P_px = peak_px if cur_is_peak else trough_px
+        P_conf = peak_conf if cur_is_peak else trough_conf
+        P_kval = peak_k if cur_is_peak else trough_k
+        ptype = 1 if cur_is_peak else -1
 
         if P_idx != last_P:
             seg_hi, seg_lo, last_P = high[P_idx], low[P_idx], P_idx
