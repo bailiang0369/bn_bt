@@ -188,6 +188,26 @@ $S='<slug>'; for($i=0;$i -lt 15;$i++){ $o=(kaggle kernels status $S);
   就重做该实验。
 - 除上述 NN/时序类别外，若想给别的项目开 GPU，仍需用户另行明确要求。
 
+### 9.7 取消运行中的 kernel（2026-11-21）
+
+Kaggle CLI **没有** `kernels stop` 子命令；对同一 slug 重新 push 一个立即退出的最小脚本，
+Kaggle 会 cancel 旧版本。本地 `kk` 工具已封装为 `kk stop --slug X --wait`（见 `kaggle-runner` skill）。
+
+```powershell
+# 推新任务前先查所有 kernel，有 running/queued 的先判断能否停
+kaggle kernels list --user byh850515
+kaggle kernels status byh850515/<slug>
+kk stop --slug byh850515/<slug> --wait      # 取消并等到 COMPLETE
+```
+
+手动版（不依赖 kk）：临时目录放 `abort.py`（一行 `print("ABORTED")`）+ `kernel-metadata.json`
+（`id`=同 slug、`code_file`="abort.py"`、`language`="python"`、`kernel_type`="script"`、
+`is_private`=true、`enable_gpu`/`enable_internet`=false），然后 `kaggle kernels push -p <目录>`。
+
+- 坑：metadata 键是 `code_file`，不是 `source_file`，写错报 "A source file must be specified"
+  且状态一直 RUNNING。
+- **副作用**：重推覆盖该 slug 当前版本与日志，只在确认不要旧结果时用；要留证据就换新 slug 推变体。
+
 其它约定：
 - 日志里中文可能乱码，脚本内加 `sys.stdout.reconfigure(encoding="utf-8")`。
 - Kaggle kernel 之间不共享 `/kaggle/working` 产物；要跨 kernel 复用数据得另外发布 Dataset。
