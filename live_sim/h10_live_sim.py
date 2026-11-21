@@ -51,6 +51,7 @@ OFFSET_MIN = int(os.environ.get("OFFSET_MIN", "0"))
 SLOTS = int(os.environ.get("SLOTS", "3"))
 DEDUP = os.environ.get("DEDUP", "none")
 COOLDOWN_MIN = int(os.environ.get("COOLDOWN_MIN", "10"))
+THR_MODE = os.environ.get("THR_MODE", "both")  # global | weekday | both
 PERTURB_N = int(os.environ.get("PERTURB_N", "12"))
 SYMBOL = os.environ.get("SYMBOL", "BTCUSDT")
 KLINE_FROM = int(os.environ.get("KLINE_FROM", "2020"))
@@ -70,6 +71,11 @@ def log(msg: str) -> None:
 
 def matrix(df: pl.DataFrame, cols: list[str]) -> np.ndarray:
     return df.select([pl.col(c).cast(pl.Float32) for c in cols]).to_numpy()
+
+
+def weekday(ct_ms: np.ndarray) -> np.ndarray:
+    """UTC 星期：1=周一 … 7=周日（1970-01-01 是周四）。"""
+    return ((ct_ms // MS_DAY + 3) % 7 + 1).astype(np.int8)
 
 
 def add_flow(df: pl.DataFrame, feats: list[str]) -> tuple[pl.DataFrame, list[str]]:
@@ -135,26 +141,38 @@ def build_reference(raw_feat: pl.DataFrame) -> list[dict]:
             pth += mdl.predict(xth, num_iteration=mdl.best_iteration) / len(SEEDS)
             pte += mdl.predict(xte, num_iteration=mdl.best_iteration) / len(SEEDS)
         thr = float(np.quantile(np.abs(pth - .5), 1 - TPD / BARS_PER_DAY))
+        th_ct = th["close_time"].to_numpy()
+        th_wd = weekday(th_ct)
+        thr_wd = {}
+        for w in range(1, 8):
+            sub = np.abs(pth[th_wd == w] - .5)
+            thr_wd[w] = float(np.quantile(sub, 1 - TPD / BARS_PER_DAY)) if len(sub) >= 1000 else thr
         y = te["target"].to_numpy().astype(np.int8)
         hit = np.abs(pte - .5) >= thr
         win = float(((pte[hit] - .5 > 0).astype(np.int8) == y[hit]).mean())
         meta = dict(ym=m, horizon=HORIZON, tpd=TPD, payout=PAYOUT, thr=thr,
-                    offset_min=OFFSET_MIN, slots=SLOTS, dedup=DEDUP,
+                    thr_wd=thr_wd, offset_min=OFFSET_MIN, slots=SLOTS, dedup=DEDUP,
                     cooldown_min=COOLDOWN_MIN, seeds=SEEDS, feats=feats,
                     train_max_ms=int(tr_all["close_time"].max()), month_start_ms=ms,
                     test_first_ms=int(te["close_time"][0]),
                     test_last_ms=int(te["close_time"][-1]),
                     n_test=te.height, n_hit=int(hit.sum()), batch_win=win)
         out.append(dict(meta=meta, ct=te["close_time"].to_numpy(), p=pte, y=y,
-                        thr=thr, boosters=boosters, feats=feats))
-        log(f"[{m}] 参考 batch {int(hit.sum())}单/{win * 100:.2f}% thr={thr:.5f}")
+                        thr=thr, thr_wd=thr_wd, boosters=boosters, feats=feats))
+        log(f"[{m}] 参考 batch {int(hit.sum())}单/{win * 100:.2f}% thr={thr:.5f} | "
+            f"星期阈值 {[round(thr_wd[w], 4) for w in range(1, 8)]}")
     return out
 
 
-def simulate(item: dict) -> dict:
+def simulate(item: dict, mode: str = "global") -> dict:
     ct, p, y, thr = item["ct"], item["p"], item["y"], item["thr"]
     s = p - .5
-    hit = np.abs(s) >= thr
+    wd = weekday(ct)
+    if mode == "weekday":
+        thr_use = np.array([item["thr_wd"][int(w)] for w in wd], dtype=np.float64)
+    else:
+        thr_use = np.full(len(ct), thr, dtype=np.float64)
+    hit = np.abs(s) >= thr_use
     raw_win = ((s[hit] > 0).astype(np.int8) == y[hit]).astype(np.int8)
     cooldown = COOLDOWN_MIN * MS_MIN
     opens: list[int] = []
@@ -184,6 +202,7 @@ def simulate(item: dict) -> dict:
             wins.append(int(d == y[i]))
         events.append(dict(close_time=int(ct[i]), decision_time=dec, settle_time=settle,
                            direction=d, target=int(y[i]), p=float(p[i]),
+                           weekday=int(wd[i]), mode=mode,
                            accepted=accepted, reason=why))
     w = np.array(wins, dtype=np.int8)
     win = float(w.mean()) if len(w) else float("nan")
@@ -191,10 +210,15 @@ def simulate(item: dict) -> dict:
     days = (pl.Series([e["decision_time"] for e in events if e["accepted"]], dtype=pl.Int64)
             .cast(pl.Datetime("ms")).dt.strftime("%Y-%m-%d").to_numpy()) if len(w) else np.array([])
     cnt = np.unique(days, return_counts=True)[1] if len(days) else np.array([])
+    acc_wd = np.array([e["weekday"] for e in events if e["accepted"]], dtype=np.int8)
+    by_wd = {}
+    for wk in range(1, 8):
+        mk = acc_wd == wk
+        by_wd[wk] = dict(n=int(mk.sum()), win=float(w[mk].mean()) if mk.any() else None)
     return dict(events=events, wins=wins, raw_n=int(hit.sum()),
                 raw_win=float(raw_win.mean()), n=len(w), win=win,
                 ev=PAYOUT * win - (1 - win) if len(w) else float("nan"),
-                roll_min=rmin, roll_bad=rbad, reasons=reasons,
+                roll_min=rmin, roll_bad=rbad, reasons=reasons, by_wd=by_wd,
                 day_mean=float(cnt.mean()) if len(cnt) else 0.,
                 day_std=float(cnt.std()) if len(cnt) else 0.,
                 day_min=int(cnt.min()) if len(cnt) else 0,
@@ -245,20 +269,26 @@ def main() -> None:
     refs = build_reference(raw_feat)
     if not refs:
         raise SystemExit("无可用月份")
-    events, wins, months, causal = [], [], [], []
+    modes = ["global", "weekday"] if THR_MODE == "both" else [THR_MODE]
+    store = {md: dict(events=[], wins=[], months=[]) for md in modes}
+    causal = []
     for item in refs:
         m = item["meta"]["ym"]
-        sim = simulate(item)
-        months.append(dict(ym=m, batch_n=sim["raw_n"], batch_win=sim["raw_win"],
-                           replay_n=sim["n"], replay_win=sim["win"], ev=sim["ev"],
-                           day_mean=sim["day_mean"], day_std=sim["day_std"],
-                           day_min=sim["day_min"], day_max=sim["day_max"],
-                           reject=sim["reasons"], roll_min=sim["roll_min"]))
-        events.extend(dict(ym=m, **e) for e in sim["events"])
-        wins.extend(sim["wins"])
-        log(f"[{m}] batch {sim['raw_n']}单/{sim['raw_win'] * 100:.2f}% → "
-            f"replay {sim['n']}单/{sim['win'] * 100:.2f}% EV={sim['ev']:+.3f} "
-            f"日单量={sim['day_mean']:.1f}±{sim['day_std']:.1f} 拒单={sim['reasons']}")
+        for md in modes:
+            sim = simulate(item, md)
+            st = store[md]
+            st["months"].append(dict(ym=m, batch_n=sim["raw_n"], batch_win=sim["raw_win"],
+                                     replay_n=sim["n"], replay_win=sim["win"], ev=sim["ev"],
+                                     day_mean=sim["day_mean"], day_std=sim["day_std"],
+                                     day_min=sim["day_min"], day_max=sim["day_max"],
+                                     reject=sim["reasons"], roll_min=sim["roll_min"],
+                                     by_wd=sim["by_wd"]))
+            st["events"].extend(dict(ym=m, **e) for e in sim["events"])
+            st["wins"].extend(sim["wins"])
+            log(f"[{m}][{md}] batch {sim['raw_n']}单/{sim['raw_win'] * 100:.2f}% → "
+                f"replay {sim['n']}单/{sim['win'] * 100:.2f}% EV={sim['ev']:+.3f} "
+                f"日单量={sim['day_mean']:.1f}±{sim['day_std']:.1f} 拒单={sim['reasons']} "
+                f"星期分布={[sim['by_wd'][w]['n'] for w in range(1, 8)]}")
         if PERTURB_N:
             cs = check_causal(raw, item)
             causal.extend(dict(ym=m, **c) for c in cs)
@@ -272,27 +302,51 @@ def main() -> None:
             .write_parquet(WORK / f"pred_{m}.parquet")
         (WORK / f"meta_{m}.json").write_text(
             json.dumps(item["meta"], ensure_ascii=False, indent=2), encoding="utf-8")
-    w = np.array(wins, dtype=np.int8)
-    win = float(w.mean()) if len(w) else float("nan")
     report = dict(
         config=dict(horizon=HORIZON, tpd=TPD, payout=PAYOUT, offset_min=OFFSET_MIN,
-                    slots=SLOTS, dedup=DEDUP, cooldown_min=COOLDOWN_MIN,
+                    slots=SLOTS, dedup=DEDUP, thr_mode=THR_MODE, cooldown_min=COOLDOWN_MIN,
                     perturb_n=PERTURB_N, seeds=SEEDS, rounds=ROUNDS, win_days=WIN_DAYS),
-        months=months,
-        total=dict(batch_n=sum(x["batch_n"] for x in months), replay_n=len(w), win=win,
-                   ev=PAYOUT * win - (1 - win) if len(w) else None,
-                   month_min=min(x["replay_win"] for x in months),
-                   roll_min=float(roll_worst(w)[0]) if len(w) else None),
-        causal=causal,
+        modes={}, causal=causal,
     )
+    for md in modes:
+        st = store[md]
+        w = np.array(st["wins"], dtype=np.int8)
+        win = float(w.mean()) if len(w) else float("nan")
+        by_wd = {}
+        for wk in range(1, 8):
+            ns = [mo["by_wd"][wk]["n"] for mo in st["months"]]
+            ws = [mo["by_wd"][wk]["win"] for mo in st["months"]
+                  if mo["by_wd"][wk]["win"] is not None]
+            n = sum(ns)
+            by_wd[wk] = dict(n=n, win=sum(a * b for a, b in zip(
+                [mo["by_wd"][wk]["n"] for mo in st["months"]
+                 if mo["by_wd"][wk]["win"] is not None], ws)) / n if n else None)
+        weekend = sum(e["weekday"] >= 6 for e in st["events"])
+        report["modes"][md] = dict(
+            months=st["months"],
+            total=dict(batch_n=sum(x["batch_n"] for x in st["months"]), replay_n=len(w),
+                       win=win, ev=PAYOUT * win - (1 - win) if len(w) else None,
+                       month_min=min(x["replay_win"] for x in st["months"]),
+                       roll_min=float(roll_worst(w)[0]) if len(w) else None,
+                       weekend_share=weekend / len(st["events"]) if st["events"] else None),
+            by_weekday=by_wd)
+    report["months"] = report["modes"].get("global", {}).get("months", [])
+    report["total"] = report["modes"].get("global", {}).get("total", {})
     (WORK / "report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    pl.DataFrame(events).write_parquet(WORK / "events.parquet")
+    pl.DataFrame([e for md in modes for e in store[md]["events"]]) \
+        .write_parquet(WORK / "events.parquet")
     print("\n" + "=" * 72)
     print(f"[live_sim] config={report['config']}")
-    print(f"[live_sim] 批量逐行命中 {report['total']['batch_n']} 单 → "
-          f"逐 bar 可下 {report['total']['replay_n']} 单，胜率 {win * 100:.2f}%，"
-          f"EV={report['total']['ev']:+.3f}，最差月 {report['total']['month_min'] * 100:.2f}%")
+    for md in modes:
+        tt = report["modes"][md]["total"]
+        print(f"[{md}] 批量命中 {tt['batch_n']} → 可下 {tt['replay_n']}，"
+              f"胜率 {tt['win'] * 100:.2f}%，EV={tt['ev']:+.3f}，"
+              f"最差月 {tt['month_min'] * 100:.2f}%，周末占比 {tt['weekend_share'] * 100:.1f}%")
+        print("     星期单数/胜率 " + " ".join(
+            f"{wk}:{report['modes'][md]['by_weekday'][wk]['n']}/"
+            f"{report['modes'][md]['by_weekday'][wk]['win']}"
+            for wk in range(1, 8)))
     print(f"[live_sim] 产物目录 {WORK}")
     print("=" * 72)
 
