@@ -35,7 +35,7 @@ except AttributeError:
 
 HORIZON = int(os.environ.get("HORIZON", "10"))
 K_PERIOD = int(os.environ.get("K_PERIOD", "80"))
-TEST_START = int(os.environ.get("TEST_START", "2026-01"))
+TEST_START = os.environ.get("TEST_START", "2026-01")
 
 
 def fit_predict(Xtr, ytr, Xte, kind):
