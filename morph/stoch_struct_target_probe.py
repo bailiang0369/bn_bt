@@ -26,7 +26,7 @@ from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from morph import kline_long as kl  # noqa: E402
-from morph.stoch_struct import FEAT_NAMES, build_struct, log, struct_leak_check  # noqa: E402
+from morph.stoch_struct import FEAT_NAMES, build_struct, log, struct_leak_check  # noqa: E402,F401
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -97,25 +97,24 @@ def main() -> None:
     tr = ~d["test"].to_numpy()
     te = d["test"].to_numpy()
 
-    targets = [("duration", "reg"), ("amplitude", "reg"), ("reach_dir", "cls")]
-    print("\n[确认点 → 下一段属性] test 预测力：")
+    # reach_dir 与 ptype 完全交替同义（峰确认→下一必为谷在下方），AUC=1 是重言式，剔除。
+    targets = [("duration", "reg"), ("amplitude", "reg")]
+    print("\n[确认点 → 下一段属性] test 预测力（用户口径，剔除重言式方向）：")
     for name, kind in targets:
         y = d[name].to_numpy().astype(np.float64)
-        if len(np.unique(y[te])) < 2:
-            print(f"  {name:<12} test 单值，跳过"); continue
         pred = fit_predict(Xev[tr], y[tr], Xev[te], kind)
         score(name, y[te], pred, kind)
 
-    # 朴素基线：用历史均值/多数类，给出"可预测"的地板
-    print("\n[基线] 常数预测：")
+    # 关键对照：只用 sc_ptype（峰/谷）预测，看是否"交替本身"就解释了大部分。
+    # 若全特征 ρ 与 ptype-only ρ 接近，说明没有超出"峰谷不对称"的新信息。
+    print("\n[对照] 只用 sc_ptype（峰谷交替）的 ρ：")
+    ptype_ev = Xev[:, FEAT_NAMES.index("sc_ptype")]
     for name, kind in targets:
         y = d[name].to_numpy().astype(np.float64)
-        yhat = np.full(te.sum(), y[tr].mean())
-        if kind == "reg":
-            rho = float(spearmanr(y[te], yhat).statistic) if np.std(yhat) > 0 else 0.0
-            print(f"  {name:<12} 常数ρ≈{rho:.3f}（train均值 {y[tr].mean():.3f}）")
-        else:
-            print(f"  {name:<12} train正类占比 {y[tr].mean():.3f}（AUC 应≈0.5）")
+        base = ptype_ev.reshape(-1, 1)
+        pred = fit_predict(base[tr], y[tr], base[te], kind)
+        rho = float(spearmanr(y[te], pred).statistic)
+        print(f"  {name:<12} ptype-only ρ={rho:+.4f}")
     log("DONE")
 
 
