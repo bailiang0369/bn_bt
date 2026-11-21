@@ -1716,6 +1716,18 @@ PROJECTS = {
              "AV_LOOKBACK": "150", "AV_MIN_SPAN": "30", "AV_TICK": "5.0",
              "AV_CAP": "300.0", "AV_SELFCHECK": "1", "KLINE_FROM": "2020"},
     ),
+    # Stoch 结构点形态特征诊断（用户 2026-11-21 notebook 口径）：逐行确认制无重绘，
+    # 17 列事件驱动特征。诊断 kernel 只算单特征 AUC + 与 base 相关性，不训练模型。
+    "scdiag10": dict(
+        slug="byh850515/btcusdt-h10-struct-diag",
+        title="BTCUSDT H10 Struct Diag",
+        entry="morph.stoch_struct_probe",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "K_PERIOD": "80",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "SC_SELFCHECK": "1", "KLINE_FROM": "2020"},
+    ),
 }
 
 # 量能 7 列对照（2026-11-16）：与 oos25h10r / reg10 配置完全相同，只切 VOL=1。
