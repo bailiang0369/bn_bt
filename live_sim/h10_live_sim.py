@@ -237,7 +237,7 @@ def main() -> None:
     os.makedirs(WORK / "models", exist_ok=True)
     raw = kl.load_raw()
     log("原始 K 线加载完成，开始构造特征")
-    raw_feat = features(raw)
+    raw_feat, _ = features(raw)
     raw_feat = add_target(raw_feat, HORIZON).filter(
         pl.col("target").is_not_null() & pl.col("close").is_not_null()).sort("close_time")
     raw_feat = raw_feat.with_columns(pl.col("close_time").cast(pl.Datetime("ms"))
