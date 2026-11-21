@@ -1739,6 +1739,17 @@ PROJECTS = {
         env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "K_PERIOD": "80",
              "TEST_START": "2026-01", "SC_SELFCHECK": "1", "KLINE_FROM": "2020"},
     ),
+    # Stoch 确认点 → 真反转二元诊断（用户 2026-11-21 修正目标）：超买确认后先下穿20
+    # 还是先重回80（真反转 vs 假突破）。非重言式，ptype-only 对照证伪重言。
+    "screv10": dict(
+        slug="byh850515/btcusdt-h10-struct-reversal",
+        title="BTCUSDT H10 Struct Reversal",
+        entry="morph.stoch_struct_reversal_probe",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "K_PERIOD": "80", "TEST_START": "2026-01",
+             "MAX_WINDOW": "10080", "SC_SELFCHECK": "1", "KLINE_FROM": "2020"},
+    ),
 }
 
 # 量能 7 列对照（2026-11-16）：与 oos25h10r / reg10 配置完全相同，只切 VOL=1。
