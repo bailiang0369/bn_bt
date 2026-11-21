@@ -16,8 +16,8 @@ import kaggle_launcher as L  # noqa: E402
 
 L.PROJECTS = {
     "livesim": dict(
-        slug="byh850515/h10-live-sim-v1",
-        title="H10 Live Replay Sim (new stage)",
+        slug="byh850515/h10-live-replay-sim-new-stage",
+        title="H10 Live Replay Sim New Stage",
         entry="live_sim.h10_live_sim",
         enable_internet=True,
         dataset_sources=[],
