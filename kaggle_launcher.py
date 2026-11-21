@@ -1704,7 +1704,7 @@ PROJECTS = {
     # max(high)/min(low) 中离当前更近者作起点，[起点,t] 按绝对 log 价格分箱算 VP。
     # 8 列含位置/状态/状态持续（"维持 vs 突破"）。现役 base 口径一次性验证，预登记见脚本 doc。
     "avp10": dict(
-        slug="byh850515/btcusdt-h10-structvp-probe",
+        slug="byh850515/btcusdt-h10-struct-vp-probe",
         title="BTCUSDT H10 Struct VP Probe",
         entry="morph.vp_anchored_probe",
         enable_internet=True,
