@@ -109,8 +109,13 @@ def _candidates(stoch_k: np.ndarray, state: np.ndarray, high: np.ndarray, low: n
 
 
 def build_struct(df: pl.DataFrame, k_period=80, d_smooth=2, d_period=2,
-                 ob=80.0, os=20.0, n_hist=4):
-    """从 vision-base 原始 K 线（含 close_time/OHLC）构造 17 列结构特征。"""
+                 ob=80.0, os=20.0, n_hist=4, return_points=False):
+    """从 vision-base 原始 K 线（含 close_time/OHLC）构造 17 列结构特征。
+
+    return_points=True 时额外返回逐行确认点数组 (ptype_arr, pidx_arr, px_arr)：
+    每行记录"截至该行最近确认点"的类型/位置/价位（无前视，forward-fill 语义），
+    供下一确认点目标（持续时间/极值/振幅）诊断使用。
+    """
     d = _stoch(df.select(["close_time", "open", "high", "low", "close"]),
                k_period, d_smooth, d_period)
     sk = d["stoch_k"].to_numpy().astype(np.float64)
@@ -124,6 +129,10 @@ def build_struct(df: pl.DataFrame, k_period=80, d_smooth=2, d_period=2,
     P = len(cc)
 
     out = np.zeros((n, len(FEAT_NAMES)), dtype=np.float32)
+    ptype_arr = np.zeros(n, dtype=np.int8)      # 最近确认点类型（forward-fill）
+    pidx_arr = np.full(n, -1, dtype=np.int64)   # 最近确认点位置
+    px_arr = np.zeros(n, dtype=np.float64)      # 最近确认点价位
+    fresh = np.zeros(n, dtype=bool)             # 该行有新的最近确认点（供 ffill 判定）
     peak_i = trough_i = -1
     peak_px, trough_px = -np.inf, np.inf
     peak_conf = trough_conf = -1
@@ -143,6 +152,12 @@ def build_struct(df: pl.DataFrame, k_period=80, d_smooth=2, d_period=2,
             else:
                 if px < trough_px:
                     trough_i, trough_px, trough_conf, trough_k = pidx, px, t, pk
+            # 确认事件：此行起的"最近确认点"由新点决定（同类未更极端则不变）
+            cur_P = peak_i if peak_i >= trough_i else trough_i
+            ptype_arr[t] = 1 if cur_P == peak_i else -1
+            pidx_arr[t] = cur_P
+            px_arr[t] = peak_px if cur_P == peak_i else trough_px
+            fresh[t] = True
             # 历史点序列：同类更极端则替换，异类追加（真实时的交替结构）
             if hist and hist[-1][1] == ptype:
                 if (ptype == 1 and px > hist[-1][2]) or (ptype == -1 and px < hist[-1][2]):
@@ -199,6 +214,16 @@ def build_struct(df: pl.DataFrame, k_period=80, d_smooth=2, d_period=2,
                 out[t, 12] = np.mean(signs[1:] != signs[:-1])
 
     log(f"structure built: {out.shape}, 结构点 {P}, 特征 {len(FEAT_NAMES)}")
+    if return_points:
+        # forward-fill：只在 fresh 行写入过，铺到后续行
+        cp = pt = 0
+        ci_ = -1
+        for i in range(n):
+            if fresh[i]:
+                cp, ci_, pt = int(ptype_arr[i]), int(pidx_arr[i]), float(px_arr[i])
+            else:
+                ptype_arr[i], pidx_arr[i], px_arr[i] = cp, ci_, pt
+        return out.astype(np.float32), list(FEAT_NAMES), (ptype_arr, pidx_arr, px_arr)
     return out.astype(np.float32), list(FEAT_NAMES)
 
 

@@ -1728,6 +1728,17 @@ PROJECTS = {
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "SC_SELFCHECK": "1", "KLINE_FROM": "2020"},
     ),
+    # Stoch 结构点 → 下一段属性 的预测力诊断（用户 2026-11-21）：在确认点预测
+    # 持续时间(log ρ)/振幅(ρ)/下一极值方向(AUC)，对标 §21 MACD 段长 ρ=0.280。
+    "sctarget10": dict(
+        slug="byh850515/btcusdt-h10-struct-target",
+        title="BTCUSDT H10 Struct Target",
+        entry="morph.stoch_struct_target_probe",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "K_PERIOD": "80",
+             "TEST_START": "2026-01", "SC_SELFCHECK": "1", "KLINE_FROM": "2020"},
+    ),
 }
 
 # 量能 7 列对照（2026-11-16）：与 oos25h10r / reg10 配置完全相同，只切 VOL=1。
