@@ -1305,8 +1305,8 @@ PROJECTS = {
     # 端到端形态 v2（2026-11-22）：修复 v1 三处缺陷（因果 padding / 尾部胜率早停 / GPU 扩样本），
     # 新 slug 不覆盖 shapenet。判据已写死在 shape_net_v2.py：tpd8 >=63.32% 替代, <58% 判死。
     "shapenetv2": dict(
-        slug="byh850515/btcusdt-shape-net-v2",
-        title="BTCUSDT Shape Net V2 (causal+tail-ES)",
+        slug="byh850515/btcusdt-shape-net-v2-smoke",
+        title="BTCUSDT Shape Net V2 Smoke",
         entry="morph.shape_net_v2",
         enable_internet=True,
         gpu=True,
