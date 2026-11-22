@@ -126,10 +126,35 @@ def main() -> None:
     raw = kl.load_raw()
     raw_feat, feats = features(raw)
     raw_feat = raw_feat.sort("close_time")
-    ct_all = raw_feat["close_time"].to_numpy()
+    base_cols = [c for c in raw_feat.columns if c != "close_time" and not c.startswith("lg_")]
+    c = pl.col("close").cast(pl.Float64)
+    r1 = (c / c.shift(1)).log() * 1e4
+    um_imb = ((pl.col("um_buy_vol") - pl.col("um_sell_vol"))
+              / (pl.col("um_buy_vol") + pl.col("um_sell_vol") + 1e-9))
+    sp_imb = ((pl.col("spot_buy_vol") - pl.col("spot_sell_vol"))
+              / (pl.col("spot_buy_vol") + pl.col("spot_sell_vol") + 1e-9))
+    extra = [
+        r1.alias("raw_ret1_bps"), r1.abs().alias("raw_absret1_bps"),
+        ((pl.col("high").cast(pl.Float64) - pl.col("low").cast(pl.Float64)) / c * 1e4)
+        .alias("raw_range_bps"),
+        um_imb.alias("raw_um_imb"), sp_imb.alias("raw_spot_imb"),
+        (um_imb - sp_imb).alias("raw_flow_div"),
+        (c / pl.col("spot_close").cast(pl.Float64) - 1).alias("raw_basis_bps"),
+        (pl.col("um_buy_vol") + pl.col("um_sell_vol")).log1p().alias("raw_log_um_vol"),
+        (pl.col("spot_buy_vol") + pl.col("spot_sell_vol")).log1p().alias("raw_log_spot_vol"),
+        (pl.col("um_count") / (pl.col("um_count") + pl.col("spot_count") + 1))
+        .alias("raw_um_count_share"),
+    ]
+    extra_names = ["raw_ret1_bps", "raw_absret1_bps", "raw_range_bps", "raw_um_imb",
+                   "raw_spot_imb", "raw_flow_div", "raw_basis_bps", "raw_log_um_vol",
+                   "raw_log_spot_vol", "raw_um_count_share"]
+    raw_feat = raw_feat.with_columns(extra)
+    raw_cols = base_cols + extra_names
+    scan_cols = feats + raw_cols
     months = sorted(MONTHLY_WIN)
     wins = np.array([MONTHLY_WIN[m] for m in months], dtype=float)
-    log(f"标签 {len(months)} 个月：{months[0]}~{months[-1]} | 特征 {len(feats)} 列")
+    log(f"标签 {len(months)} 个月：{months[0]}~{months[-1]} | "
+        f"模型特征 {len(feats)} + 原始/衍生 {len(raw_cols)} = {len(scan_cols)} 列")
 
     pre_rows, full_rows = [], []
     for m in months:
@@ -148,12 +173,12 @@ def main() -> None:
         if min(ref.height, pre.height, full.height) < 1000:
             log(f"[{m}] 样本不足，跳过 ({ref.height}/{pre.height}/{full.height})")
             continue
-        a_ref = {f: ref[f].to_numpy() for f in feats}
-        a_pre = {f: pre[f].to_numpy() for f in feats}
-        a_full = {f: full[f].to_numpy() for f in feats}
-        s_ref = {f: summary(a_ref[f]) for f in feats}
+        a_ref = {f: ref[f].to_numpy() for f in scan_cols}
+        a_pre = {f: pre[f].to_numpy() for f in scan_cols}
+        a_full = {f: full[f].to_numpy() for f in scan_cols}
+        s_ref = {f: summary(a_ref[f]) for f in scan_cols}
         row_pre, row_full = {}, {}
-        for f in feats:
+        for f in scan_cols:
             row_pre[f] = drift(s_ref[f], summary(a_pre[f]), a_ref[f], a_pre[f])
             row_full[f] = drift(s_ref[f], summary(a_full[f]), a_ref[f], a_full[f])
         pre_rows.append(dict(ym=m, win=MONTHLY_WIN[m], drift=row_pre))
@@ -162,14 +187,15 @@ def main() -> None:
 
     rng = np.random.default_rng(20261122)
     results = []
-    for f in feats:
+    for f in scan_cols:
         for metric in ("mean_z", "median_z", "std_ratio", "psi"):
             v = np.array([r["drift"][f][metric] for r in pre_rows], dtype=float)
             if np.count_nonzero(np.isfinite(v)) < 6:
                 continue
             rho = spearman(v, wins)
             p = perm_p(v, wins, rho, rng)
-            results.append(dict(feature=f, metric=metric, rho=rho, p=p,
+            results.append(dict(feature=f, source="model" if f in feats else "raw",
+                                metric=metric, rho=rho, p=p,
                                 values=[None if not np.isfinite(x) else round(float(x), 5)
                                         for x in v]))
     qs = bh_fdr(np.array([r["p"] for r in results]))
@@ -180,17 +206,19 @@ def main() -> None:
     report = dict(config=dict(pre_days=PRE_DAYS, win_days=WIN_DAYS, n_perm=N_PERM,
                               label_source="kaggle h10sig/A/B/C monthly logs",
                               months=months, wins=wins.tolist()),
-                  n_features=len(feats), results=results,
+                  n_features=len(scan_cols), n_model_features=len(feats),
+                  n_raw_features=len(raw_cols), results=results,
                   pre_rows=pre_rows, full_rows=full_rows,
                   win_by_config=WIN_BY_CONFIG)
     (WORK / "h10_drift_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print("\n" + "=" * 92)
-    print(f"全特征漂移扫描：{len(feats)} 列 × 4 指标 × {len(months)} 月，置换 {N_PERM} 次，BH-FDR")
-    print("feature metric rho p q | 按月份顺序的漂移值")
-    for r in results[:20]:
-        print(f"{r['feature']:<18}{r['metric']:<10}{r['rho']:+.2f} {r['p']:.4f} "
-              f"{r['q'] if r['q'] is not None else float('nan'):.3f} | "
+    print(f"全特征漂移扫描：模型 {len(feats)} + 原始/衍生 {len(raw_cols)} = "
+          f"{len(scan_cols)} 列 × 4 指标 × {len(months)} 月，置换 {N_PERM} 次，BH-FDR")
+    print("feature source metric rho p q | 按月份顺序的漂移值")
+    for r in results[:25]:
+        print(f"{r['feature']:<18}{r['source']:<6}{r['metric']:<10}{r['rho']:+.2f} "
+              f"{r['p']:.4f} {r['q'] if r['q'] is not None else float('nan'):.3f} | "
               + " ".join("—" if v is None else f"{v:+.2f}" for v in r["values"][:6]))
     sig = [r for r in results if r["q"] is not None and r["q"] < 0.10]
     print(f"FDR<10% 的特征数：{len(sig)}（ exploratory only，不能直接上线）")
