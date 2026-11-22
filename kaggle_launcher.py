@@ -679,10 +679,10 @@ PROJECTS = {
     "h10wdroll": dict(
         slug="byh850515/h10-weekday-roll",
         title="H10 Weekday Roll",
-        entry="morph.h10_signal",
+        entry="morph.h10_weekday_roll",
         enable_internet=True,
         dataset_sources=[],
-        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "1460", "WEEKDAY_ONLY": "1",
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "1460",
              "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",
              "TPD_LIST": "8,12", "PRIMARY_TPD": "12", "KLINE_FROM": "2020", "PLACEBO": "0"},
