@@ -88,8 +88,18 @@ def log(msg: str) -> None:
 
 def build_channels(df: pl.DataFrame) -> tuple[pl.DataFrame, list[str]]:
     c = df.columns
-    vol_n = next((x for x in ("volume", "um_volume") if x in c), None)
-    tb_n = next((x for x in ("taker_buy_volume", "um_taker_buy_vol") if x in c), None)
+    # 修复（2026-11-22）：kl.load_raw() 的 GitHub Release 1m K 线实际列是
+    # um_buy_vol / um_sell_vol / um_count（见 kline_long 审查），不是 volume/taker_buy_volume。
+    # 原版候选列表两个都匹配不到 → lvol/tbr 恒为 0，7 通道里 2 个是死输入。
+    v_col = next((x for x in ("volume", "um_volume") if x in c), None)
+    if v_col is None and "um_buy_vol" in c and "um_sell_vol" in c:
+        vol_expr = pl.col("um_buy_vol").cast(pl.Float64) + pl.col("um_sell_vol").cast(pl.Float64)
+        tbr_expr = (pl.col("um_buy_vol").cast(pl.Float64) / (vol_expr + 1e-9) - 0.5)
+        v_col = "__um_total_vol"          # 仅作存在标记；下面用 vol_expr
+    else:
+        vol_expr = pl.col(v_col).cast(pl.Float64) if v_col else None
+        tbr_n = next((x for x in ("taker_buy_volume", "um_taker_buy_vol") if x in c), None)
+        tbr_expr = (pl.col(tbr_n).cast(pl.Float64) / (vol_expr + 1e-9) - 0.5) if tbr_n else None
     o, h, lo, cl = (pl.col("open").cast(pl.Float64), pl.col("high").cast(pl.Float64),
                     pl.col("low").cast(pl.Float64), pl.col("close").cast(pl.Float64))
     e = [((cl / cl.shift(1)).log() * 1e4).alias("ret1"),
@@ -97,11 +107,9 @@ def build_channels(df: pl.DataFrame) -> tuple[pl.DataFrame, list[str]]:
          ((h - pl.max_horizontal(o, cl)) / cl * 1e4).alias("up"),
          ((pl.min_horizontal(o, cl) - lo) / cl * 1e4).alias("dn"),
          ((h - lo) / cl * 1e4).alias("rng")]
-    if vol_n:
-        v = pl.col(vol_n).cast(pl.Float64)
-        e.append(v.log1p().alias("lvol"))
-        e.append((pl.col(tb_n).cast(pl.Float64) / (v + 1e-9) - 0.5).alias("tbr")
-                 if tb_n else pl.lit(0.0).alias("tbr"))
+    if vol_expr is not None:
+        e.append(vol_expr.log1p().alias("lvol"))
+        e.append(tbr_expr.alias("tbr") if tbr_expr is not None else pl.lit(0.0).alias("tbr"))
     else:
         e += [pl.lit(0.0).alias("lvol"), pl.lit(0.0).alias("tbr")]
     out = df.with_columns(e)
@@ -122,8 +130,10 @@ def load_arrays() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             arr[:, j] = np.clip(arr[:, j], -8 * sd, 8 * sd)
     y = df["target"].to_numpy().astype(np.int8)
     ct = df["close_time"].cast(pl.Int64).to_numpy()
+    stds = {k: round(float(np.std(arr[:, j])), 4) for j, k in enumerate(ch)}
     log(f"通道 {len(ch)} {ch} | 可用 {df.height:,} 行 | WIN={WIN} | dev={DEV} "
         f"| kernels={KERNELS} co={CO}")
+    log(f"通道std={stds} | 正例率={y.mean():.4f}  <- 任一通道std=0 说明该通道是死的")
     return arr, y, ct
 
 
@@ -207,9 +217,11 @@ def train_one(arr, idx_tr, y_tr, idx_es, y_es, seed):
             tot += float(loss) * len(sel)
         p_es = predict(model, arr, idx_es)
         tw, nhit = tail_win(p_es, y_es, PRIMARY_TPD)      # 修复点 2：尾部胜率早停
-        auc = float(roc_auc_score(y_es, p_es))
+        auc = float(roc_auc_score(y_es, p_es)) if len(np.unique(y_es)) > 1 else float("nan")
+        pstd = float(np.std(p_es))
         log(f"    ep{ep + 1}/{EPOCHS} loss={tot / max(1, len(idx_tr)):.4f} "
-            f"es_tailwin={tw * 100:.2f}%(n={nhit}) es_auc={auc:.4f}")
+            f"es_tailwin={tw * 100:.2f}%(n={nhit}) es_auc={auc:.4f} "
+            f"pred_std={pstd:.5f}  <- pred_std≈0 说明sigmoid饱和/学不到")
         if tw > best_metric:
             best_metric, best_auc = tw, auc
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
