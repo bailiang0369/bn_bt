@@ -69,6 +69,10 @@ THR_FRAC = float(os.environ.get("THR_FRAC", "0.10"))
 STRIDE = int(os.environ.get("STRIDE", "2"))
 START_MONTH = os.environ.get("START_MONTH", "2026-01")
 END_MONTH = os.environ.get("END_MONTH", "2026-10")
+# SINGLE_SPLIT=1：不逐月重训，训练用 START_MONTH 之前全部历史，测试用 START~END 整段。
+# 用途：用一次训练换来 10 个月 test 样本，把 tpd8 尾部 n 从单月 165 提到 ~1650（SE 12pp→3pp），
+# 快速判定"尾部到底有没有 edge"，避免逐月重训 10×12min 才知道结果。严格因果（train 全在 test 之前）。
+SINGLE_SPLIT = os.environ.get("SINGLE_SPLIT", "0") == "1"
 TPD_LIST = [float(x) for x in os.environ.get("TPD_LIST", "2,5,8,15,30").split(",") if x.strip()]
 PRIMARY_TPD = float(os.environ.get("PRIMARY_TPD", "8"))
 BARS_PER_DAY = int(os.environ.get("BARS_PER_DAY", "1440"))
@@ -257,12 +261,9 @@ def _run(arr, y, ct):
     months = [m for m in sorted(set(
         pl.Series(ct).cast(pl.Datetime("ms")).dt.strftime("%Y-%m").to_list()))
         if START_MONTH <= m <= END_MONTH]
-    log(f"walk-forward {len(months)} 窗（{months[0]}~{months[-1]}）| H={HORIZON} | "
-        f"窗 {WIN_DAYS} 天 | es={ES_FRAC:.0%} thr={THR_FRAC:.0%} | seeds={len(SEEDS)} "
-        f"| stride={STRIDE} maxtrain={MAX_TRAIN} | 早停=es尾部胜率 | placebo={int(PLACEBO)}")
 
-    per = {t: dict(s=[], y=[], mon=[], wd=[], ct=[]) for t in TPD_LIST}
-    rows = []
+    # 构造窗口列表 (label, i_tr, i_te)
+    windows = []
     for m in months:
         m_start = int(dt.datetime.strptime(m + "-01", "%Y-%m-%d")
                       .replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
@@ -271,6 +272,25 @@ def _run(arr, y, ct):
         nxt = (dt.datetime.strptime(m + "-01", "%Y-%m-%d").replace(tzinfo=dt.timezone.utc)
                + dt.timedelta(days=32)).replace(day=1)
         i_te = np.where((ct >= m_start) & (ct < int(nxt.timestamp() * 1000)))[0]
+        windows.append((m, i_tr, i_te))
+    if SINGLE_SPLIT:
+        # 单次训练：train=START 之前全部历史（受 MAX_TRAIN 截），test=START~END 整段
+        t0 = int(dt.datetime.strptime(START_MONTH + "-01", "%Y-%m-%d")
+                 .replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
+        e_end = (dt.datetime.strptime(END_MONTH + "-01", "%Y-%m-%d")
+                 .replace(tzinfo=dt.timezone.utc) + dt.timedelta(days=32)).replace(day=1)
+        i_tr = np.where(ct < t0)[0]
+        i_te = np.where((ct >= t0) & (ct < int(e_end.timestamp() * 1000)))[0]
+        windows = [(f"SINGLE({START_MONTH}~{END_MONTH})", i_tr, i_te)]
+
+    log(f"{'SINGLE-SPLIT 1窗' if SINGLE_SPLIT else 'walk-forward ' + str(len(months)) + '窗'} "
+        f"（{windows[0][0]}~{windows[-1][0]}）| H={HORIZON} | 窗 {WIN_DAYS} 天 | "
+        f"es={ES_FRAC:.0%} thr={THR_FRAC:.0%} | seeds={len(SEEDS)} "
+        f"| stride={STRIDE} maxtrain={MAX_TRAIN} | 早停=es尾部胜率 | placebo={int(PLACEBO)}")
+
+    per = {t: dict(s=[], y=[], mon=[], wd=[], ct=[]) for t in TPD_LIST}
+    rows = []
+    for m, i_tr, i_te in windows:
         if len(i_tr) < 100_000 or len(i_te) < 1_000:
             log(f"[{m}] 样本不足（{len(i_tr):,}/{len(i_te):,}），跳过")
             continue
