@@ -600,7 +600,7 @@ PROJECTS = {
     # 新 slug，不动 byh850515/btcusdt-h3-gate 及任何现役产物；CPU（LightGBM）。
     "h3wdmodel": dict(
         slug="byh850515/h3-weekday-model",
-        title="H3 Weekday-Only Model",
+        title="H3 Weekday Model",
         entry="morph.h3_weekday_model",
         enable_internet=True,
         dataset_sources=[],
