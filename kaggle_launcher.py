@@ -674,6 +674,19 @@ PROJECTS = {
         env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "1460",
              "TPD_WD": "12", "ROUNDS": "2000", "SEEDS": "42,43,44,45,46", "EXP": "WD1"},
     ),
+    # 2026-11-22：与现役 h10sig 同口径的逐月 walk-forward 工作日专模（WEEKDAY_ONLY=1）。
+    # 单切分版 h10wdmodel 只用于快速诊断；这个才是可比较的滚动版本，CPU，新 slug。
+    "h10wdroll": dict(
+        slug="byh850515/h10-weekday-roll",
+        title="H10 Weekday Roll",
+        entry="morph.h10_signal",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "1460", "WEEKDAY_ONLY": "1",
+             "SEEDS": "42,43,44,45,46", "ROUNDS": "2000", "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "8,12", "PRIMARY_TPD": "12", "KLINE_FROM": "2020", "PLACEBO": "0"},
+    ),
     # 这里把 h3_signal 的纪律搬到 h=10——阈值只在窗口尾部 thr 段定，逐月 walk-forward。
     # 目标：无前视胜率 ≥60%（主操作点预登记 tpd=8，不事后挑最优点）。
     "h10sig": dict(

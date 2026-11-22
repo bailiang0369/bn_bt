@@ -83,6 +83,8 @@ def _git_rev() -> str:
 CODE_REV = _git_rev()
 
 HORIZON = int(os.environ.get("HORIZON", "10"))
+# 2026-11-22 工作日专模开关：默认 0 保持现役口径；=1 时只在 UTC 周一~周五训练/预测。
+WEEKDAY_ONLY = os.environ.get("WEEKDAY_ONLY", "0") == "1"
 # bar 尺度（分钟）：1 = 原始 1m；>1 = 真 K 线重采样，并在新 bar 上重算全部特征
 BAR = int(os.environ.get("BAR", "1"))
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44,45,46").split(",") if s.strip()]
@@ -383,6 +385,12 @@ def main() -> None:
         df, feats = add_liq(df, feats)
     df = add_target(df, HORIZON).filter(
         pl.col("target").is_not_null() & pl.col("close").is_not_null()).sort("close_time")
+    if WEEKDAY_ONLY:
+        # 特征与标签已在完整连续序列上算好；这里只筛行，不破坏滚动窗口。
+        df = (df.with_columns(pl.from_epoch(pl.col("close_time"), time_unit="ms")
+                              .dt.weekday().alias("wd"))
+                .filter(pl.col("wd") <= 5).drop("wd"))
+        log("WEEKDAY_ONLY=1：只保留 UTC 周一~周五，周末现役信号不受影响")
     df = df.with_columns(
         pl.col("close_time").cast(pl.Datetime("ms")).dt.strftime("%Y-%m").alias("ym"))
     log(f"特征 {len(feats)} 列 | 可用 {df.height:,} 行 | {df['ym'].min()} ~ {df['ym'].max()}")
