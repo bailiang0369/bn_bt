@@ -1302,6 +1302,23 @@ PROJECTS = {
              "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
              "PAYOUTS": "0.80,0.828", "KLINE_FROM": "2020"},
     ),
+    # 端到端形态 v2（2026-11-22）：修复 v1 三处缺陷（因果 padding / 尾部胜率早停 / GPU 扩样本），
+    # 新 slug 不覆盖 shapenet。判据已写死在 shape_net_v2.py：tpd8 >=63.32% 替代, <58% 判死。
+    "shapenetv2": dict(
+        slug="byh850515/btcusdt-shape-net-v2",
+        title="BTCUSDT Shape Net V2 (causal+tail-ES)",
+        entry="morph.shape_net_v2",
+        enable_internet=True,
+        gpu=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN": "240", "EPOCHS": "8",
+             "BATCH": "512", "MAX_TRAIN": "1500000", "LR": "0.002", "WD": "0.0001",
+             "SEEDS": "42,43,44", "WIN_DAYS": "1460", "STRIDE": "2",
+             "ES_FRAC": "0.05", "THR_FRAC": "0.10",
+             "START_MONTH": "2026-01", "END_MONTH": "2026-10",
+             "TPD_LIST": "2,5,8,15,30", "PRIMARY_TPD": "8",
+             "PAYOUTS": "0.80,0.828", "KLINE_FROM": "2020"},
+    ),
     # bar 尺度隔离（2026-11-15）：外部 notebook h=10 报 58.3%，用的是 5m bar；我们全部
     # 历史实验都是 1m bar（h=10 = 预测 10 步、标签重叠 10 根）。同一份 K 线数据只换
     # bar 尺度（1/5/10m），阈值纪律不变，看 4.6pp 的差距有多少来自这一条。
