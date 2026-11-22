@@ -1312,7 +1312,7 @@ PROJECTS = {
         gpu=True,
         dataset_sources=[],
         env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN": "240", "EPOCHS": "8",
-             "BATCH": "512", "MAX_TRAIN": "1500000", "LR": "0.002", "WD": "0.0001",
+             "BATCH": "512", "MAX_TRAIN": "1500000", "LR": "0.0005", "WD": "0.0001",
              "SEEDS": "42,43,44", "WIN_DAYS": "1460", "STRIDE": "2",
              "ES_FRAC": "0.05", "THR_FRAC": "0.10",
              "START_MONTH": "2026-01", "END_MONTH": "2026-10",

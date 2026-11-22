@@ -60,7 +60,7 @@ WIN = int(os.environ.get("WIN", "240"))
 EPOCHS = int(os.environ.get("EPOCHS", "8"))
 BATCH = int(os.environ.get("BATCH", "512"))
 MAX_TRAIN = int(os.environ.get("MAX_TRAIN", "1500000"))
-LR = float(os.environ.get("LR", "2e-3"))
+LR = float(os.environ.get("LR", "5e-4"))   # 从 2e-3 降到 5e-4（smoke 坍缩修复）
 WD = float(os.environ.get("WD", "1e-4"))
 SEEDS = [int(s) for s in os.environ.get("SEEDS", "42,43,44").split(",") if s.strip()]
 WIN_DAYS = int(os.environ.get("WIN_DAYS", "1460"))
@@ -143,6 +143,7 @@ def make_batch(arr: np.ndarray, idx: np.ndarray) -> torch.Tensor:
     t = torch.from_numpy(x)
     if NORM:
         t = (t - t.mean(dim=2, keepdim=True)) / t.std(dim=2, keepdim=True).clamp_min(1e-3)
+        t = t.clamp(-5, 5)   # 防极端值把 BN 的 running stats 带飞（配合 LeakyReLU 治坍缩）
     return t
 
 
@@ -151,14 +152,17 @@ class MultiScaleCausal(nn.Module):
 
     def __init__(self, cin: int):
         super().__init__()
+        # 修复 dying ReLU（2026-11-23 smoke：3 seed 里 2 个 pred_std=0 坍缩）：
+        # ReLU 换成 LeakyReLU(0.1)，负值也有梯度，神经元不会永久死。
+        act = lambda: nn.LeakyReLU(0.1)
         self.convs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv1d(cin, CO, k, padding=0), nn.BatchNorm1d(CO), nn.ReLU(),
-                nn.Conv1d(CO, CO, k, padding=0), nn.BatchNorm1d(CO), nn.ReLU())
+                nn.Conv1d(cin, CO, k, padding=0), nn.BatchNorm1d(CO), act(),
+                nn.Conv1d(CO, CO, k, padding=0), nn.BatchNorm1d(CO), act())
             for k in KERNELS])
         self.kernels = KERNELS
         self.head = nn.Sequential(
-            nn.Linear(CO * len(KERNELS) * 2, 64), nn.ReLU(),
+            nn.Linear(CO * len(KERNELS) * 2, 64), act(),
             nn.Dropout(0.10), nn.Linear(64, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -191,40 +195,51 @@ def tail_win(p: np.ndarray, y: np.ndarray, tpd: float) -> tuple[float, int]:
 
 
 def train_one(arr, idx_tr, y_tr, idx_es, y_es, seed):
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    model = MultiScaleCausal(arr.shape[1]).to(DEV)
-    opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
-    steps = max(1, int(np.ceil(len(idx_tr) / BATCH)) * EPOCHS)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps, eta_min=LR * 0.05)
-    lossf = nn.BCEWithLogitsLoss()
-    rng = np.random.default_rng(seed)
-    best_metric, best_state, best_auc = -1.0, None, float("nan")
-    for ep in range(EPOCHS):
-        model.train()
-        perm = rng.permutation(len(idx_tr))
-        tot = 0.0
-        for i in range(0, len(perm), BATCH):
-            sel = perm[i:i + BATCH]
-            xb = make_batch(arr, idx_tr[sel]).to(DEV, non_blocking=True)
-            yb = torch.from_numpy(y_tr[sel].astype(np.float32)).to(DEV, non_blocking=True)
-            opt.zero_grad(set_to_none=True)
-            loss = lossf(model(xb), yb)
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
-            sched.step()
-            tot += float(loss) * len(sel)
-        p_es = predict(model, arr, idx_es)
-        tw, nhit = tail_win(p_es, y_es, PRIMARY_TPD)      # 修复点 2：尾部胜率早停
-        auc = float(roc_auc_score(y_es, p_es)) if len(np.unique(y_es)) > 1 else float("nan")
-        pstd = float(np.std(p_es))
-        log(f"    ep{ep + 1}/{EPOCHS} loss={tot / max(1, len(idx_tr)):.4f} "
-            f"es_tailwin={tw * 100:.2f}%(n={nhit}) es_auc={auc:.4f} "
-            f"pred_std={pstd:.5f}  <- pred_std≈0 说明sigmoid饱和/学不到")
-        if tw > best_metric:
-            best_metric, best_auc = tw, auc
-            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+    """坍缩自愈（2026-11-23）：若整轮 pred_std < 0.005（输出塌成常数），
+    降 LR 一半、换 seed 重训，最多 2 次。避免 smoke 里 2/3 seed 白跑。"""
+    for attempt in range(3):
+        cur_lr = LR * (0.5 ** attempt)
+        cur_seed = seed + 1000 * attempt
+        torch.manual_seed(cur_seed)
+        np.random.seed(cur_seed)
+        model = MultiScaleCausal(arr.shape[1]).to(DEV)
+        opt = torch.optim.AdamW(model.parameters(), lr=cur_lr, weight_decay=WD)
+        steps = max(1, int(np.ceil(len(idx_tr) / BATCH)) * EPOCHS)
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps, eta_min=cur_lr * 0.05)
+        lossf = nn.BCEWithLogitsLoss()
+        rng = np.random.default_rng(cur_seed)
+        best_metric, best_state, best_auc = -1.0, None, float("nan")
+        last_pstd = 0.0
+        for ep in range(EPOCHS):
+            model.train()
+            perm = rng.permutation(len(idx_tr))
+            tot = 0.0
+            for i in range(0, len(perm), BATCH):
+                sel = perm[i:i + BATCH]
+                xb = make_batch(arr, idx_tr[sel]).to(DEV, non_blocking=True)
+                yb = torch.from_numpy(y_tr[sel].astype(np.float32)).to(DEV, non_blocking=True)
+                opt.zero_grad(set_to_none=True)
+                loss = lossf(model(xb), yb)
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                opt.step()
+                sched.step()
+                tot += float(loss) * len(sel)
+            p_es = predict(model, arr, idx_es)
+            tw, nhit = tail_win(p_es, y_es, PRIMARY_TPD)      # 修复点 2：尾部胜率早停
+            auc = float(roc_auc_score(y_es, p_es)) if len(np.unique(y_es)) > 1 else float("nan")
+            last_pstd = float(np.std(p_es))
+            log(f"    seed{cur_seed} try{attempt} ep{ep + 1}/{EPOCHS} "
+                f"loss={tot / max(1, len(idx_tr)):.4f} "
+                f"es_tailwin={tw * 100:.2f}%(n={nhit}) es_auc={auc:.4f} pred_std={last_pstd:.5f}")
+            if tw > best_metric:
+                best_metric, best_auc = tw, auc
+                best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        if last_pstd >= 0.005:      # 学活了，接受
+            break
+        log(f"    seed{cur_seed} 坍缩(pred_std={last_pstd:.5f})，降LR换seed重训")
+        if DEV == "cuda":
+            torch.cuda.empty_cache()
     if best_state is not None:
         model.load_state_dict(best_state)
     return model, best_metric, best_auc
