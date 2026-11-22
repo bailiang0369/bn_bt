@@ -596,6 +596,17 @@ PROJECTS = {
              "TARGET_TPD": "15", "ROUNDS": "2000", "EXP": "W",
              "SEEDS": "42,43,44,45,46"},
     ),
+    # 2026-11-22 用户目标：周末现役 h3 完全冻结；只在工作日重训专模，保持 10~15 单/天并提胜率。
+    # 新 slug，不动 byh850515/btcusdt-h3-gate 及任何现役产物；CPU（LightGBM）。
+    "h3wdmodel": dict(
+        slug="byh850515/h3-weekday-model",
+        title="H3 Weekday-Only Model",
+        entry="morph.h3_weekday_model",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "3", "TPD_WD": "12",
+             "ROUNDS": "2000", "SEEDS": "42,43,44,45,46", "EXP": "WD1"},
+    ),
     # A/B：val 是否并入训练集重训（用户 2026-11-14 提出）。A=现役 64/16/20，
     # B=train+val 重训（轮数固定为 A 的平均早停轮数），阈值同分位保证单量可比。
     "h3retrain": dict(
