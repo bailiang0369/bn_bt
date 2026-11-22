@@ -664,6 +664,16 @@ PROJECTS = {
              "TPD_LIST": "120,60,30,15,10,5,2"},
     ),
     # h=10 因果阈值实盘口径（2026-11-15）：kline_long 的 @日均15单 是全期 top-K（前视），
+    # 2026-11-22：h10 K 线工作日专模对照（不用盘口；周末 h3 冻结）。新 slug，CPU。
+    "h10wdmodel": dict(
+        slug="byh850515/h10-weekday-model",
+        title="H10 Weekday Model",
+        entry="morph.h10_weekday_model",
+        enable_internet=True,
+        dataset_sources=[],
+        env={"SYMBOL": "BTCUSDT", "HORIZON": "10", "WIN_DAYS": "1460",
+             "TPD_WD": "12", "ROUNDS": "2000", "SEEDS": "42,43,44,45,46", "EXP": "WD1"},
+    ),
     # 这里把 h3_signal 的纪律搬到 h=10——阈值只在窗口尾部 thr 段定，逐月 walk-forward。
     # 目标：无前视胜率 ≥60%（主操作点预登记 tpd=8，不事后挑最优点）。
     "h10sig": dict(
